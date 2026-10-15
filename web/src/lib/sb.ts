@@ -210,7 +210,11 @@ export const mfa = {
     });
     if (!res.ok) throw new Error(await errorText(res));
     const j = await res.json();
-    return { id: j.id, qr: j.totp.qr_code, secret: j.totp.secret };
+    // The QR arrives as SVG markup (sometimes as an unencoded data URL); encode it so every browser can show it.
+    const raw: string = j.totp.qr_code || "";
+    const svg = raw.startsWith("<") ? raw : raw.replace(/^data:image\/svg\+xml;(?:utf-8|charset=utf-8)?,/, "");
+    const qr = svg.startsWith("<") ? `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}` : raw;
+    return { id: j.id, qr, secret: j.totp.secret };
   },
   async verify(factorId: string, code: string) {
     const c = await fetch(`${SUPABASE_URL}/auth/v1/factors/${factorId}/challenge`, { method: "POST", headers: await headers({ "Content-Type": "application/json" }), body: "{}" });
@@ -233,6 +237,17 @@ export const mfa = {
     if (!res.ok) throw new Error(await errorText(res));
   },
 };
+
+// ---------------- server functions ----------------
+export async function callFunction<T = any>(name: string, body: unknown): Promise<T> {
+  const res = await fetch(`${SUPABASE_URL}/functions/v1/${name}`, {
+    method: "POST",
+    headers: await headers({ "Content-Type": "application/json" }),
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(await errorText(res));
+  return res.json();
+}
 
 // ---------------- database ----------------
 async function rest<T>(method: string, path: string, body?: unknown, prefer?: string): Promise<T> {
@@ -257,14 +272,31 @@ async function rest<T>(method: string, path: string, body?: unknown, prefer?: st
 export const db = {
   get: <T = any>(pathAndQuery: string) => rest<T[]>("GET", pathAndQuery),
   rpc: <T = any>(fn: string, args: Record<string, unknown>) => rest<T>("POST", `rpc/${fn}`, args),
-  insert: <T = any>(table: string, rows: unknown) => rest<T[]>("POST", table, rows, "return=representation"),
-  update: <T = any>(table: string, filter: string, patch: unknown) =>
-    rest<T[]>("PATCH", `${table}?${filter}`, patch, "return=representation"),
+  insert: <T = any>(table: string, rows: unknown, select = "*") => rest<T[]>("POST", `${table}?select=${select}`, rows, "return=representation"),
+  update: <T = any>(table: string, filter: string, patch: unknown, select = "*") =>
+    rest<T[]>("PATCH", `${table}?${filter}&select=${select}`, patch, "return=representation"),
+  upsert: <T = any>(table: string, rows: unknown, onConflict: string, select = "*") =>
+    rest<T[]>("POST", `${table}?on_conflict=${onConflict}&select=${select}`, rows, "return=representation,resolution=merge-duplicates"),
   remove: (table: string, filter: string) => rest<void>("DELETE", `${table}?${filter}`),
 };
 
 // ---------------- storage ----------------
 export const storage = {
+  async signedUrl(bucket: string, path: string, seconds = 300) {
+    const res = await fetch(`${SUPABASE_URL}/storage/v1/object/sign/${bucket}/${path.split("/").map(encodeURIComponent).join("/")}`, {
+      method: "POST",
+      headers: await headers({ "Content-Type": "application/json" }),
+      body: JSON.stringify({ expiresIn: seconds }),
+    });
+    if (!res.ok) throw new Error(await errorText(res));
+    const j = await res.json();
+    return `${SUPABASE_URL}/storage/v1${j.signedURL}`;
+  },
+  async download(bucket: string, path: string): Promise<Blob> {
+    const res = await fetch(`${SUPABASE_URL}/storage/v1/object/authenticated/${bucket}/${path.split("/").map(encodeURIComponent).join("/")}`, { headers: await headers() });
+    if (!res.ok) throw new Error(await errorText(res));
+    return res.blob();
+  },
   async upload(bucket: string, path: string, file: File) {
     const res = await fetch(`${SUPABASE_URL}/storage/v1/object/${bucket}/${path.split("/").map(encodeURIComponent).join("/")}`, {
       method: "POST",

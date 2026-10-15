@@ -80,7 +80,8 @@ export function MfaGate({ required, email, onDone }: { required: boolean; email:
             <img src={enroll.qr} alt="QR code for your authenticator app" className="qr" />
             <details>
               <summary>Can't scan? Enter this key instead</summary>
-              <code className="secret">{enroll.secret}</code>
+              <code className="secret">{enroll.secret.replace(/(.{4})/g, "$1 ").trim()}</code>
+              <span className="small muted">In your authenticator app choose "Enter a setup key", name it Akea Portal, and type this key. Then enter the 6-digit number the app shows below.</span>
             </details>
           </>
         )}
@@ -94,8 +95,8 @@ export function MfaGate({ required, email, onDone }: { required: boolean; email:
           <>
             <div className="field">
               <label htmlFor="mfaCode">6-digit code</label>
-              <input id="mfaCode" inputMode="numeric" autoComplete="one-time-code" pattern="[0-9 ]{6,7}" maxLength={7} required autoFocus
-                value={code} onChange={(e) => setCode(e.target.value)} className="code-input" />
+              <input id="mfaCode" inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" required autoFocus placeholder="123456"
+                value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))} className="code-input" />
             </div>
             <button className="btn pri wide" disabled={busy}>{busy ? "Checking…" : enroll ? "Turn on and continue" : "Verify"}</button>
           </>

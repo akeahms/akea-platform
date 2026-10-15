@@ -137,3 +137,49 @@ export function guessReportType(name: string): string {
   if (n.includes("invoice")) return "vendor_invoice";
   return "unknown";
 }
+
+// ---------------- time in a hotel's own time zone ----------------
+const dtfCache = new Map<string, Intl.DateTimeFormat>();
+function parts(ts: number, tz: string) {
+  let f = dtfCache.get(tz);
+  if (!f) {
+    f = new Intl.DateTimeFormat("en-US", { timeZone: tz, hourCycle: "h23", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit" });
+    dtfCache.set(tz, f);
+  }
+  const o: Record<string, number> = {};
+  f.formatToParts(new Date(ts)).forEach((p) => p.type !== "literal" && (o[p.type] = Number(p.value)));
+  return o;
+}
+/** "2026-10-16" + "07:30" in America/Chicago -> UTC ISO string */
+export function wallToUtc(date: string, time: string, tz: string) {
+  const [y, m, d] = date.split("-").map(Number);
+  const [hh, mm] = time.split(":").map(Number);
+  const guess = Date.UTC(y, m - 1, d, hh, mm);
+  const p = parts(guess, tz);
+  const asUtc = Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute, p.second);
+  const off = asUtc - guess;
+  let ts = guess - off;
+  const p2 = parts(ts, tz); // correct across DST changes
+  const off2 = Date.UTC(p2.year, p2.month - 1, p2.day, p2.hour, p2.minute, p2.second) - ts;
+  if (off2 !== off) ts = guess - off2;
+  return new Date(ts).toISOString();
+}
+/** UTC timestamp -> { date: "YYYY-MM-DD", time: "HH:MM", mins } in the hotel's zone */
+export function inTz(ts: string, tz: string) {
+  const p = parts(Date.parse(ts), tz);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return { date: `${p.year}-${pad(p.month)}-${pad(p.day)}`, time: `${pad(p.hour)}:${pad(p.minute)}`, mins: p.hour * 60 + p.minute };
+}
+export function fmtClock(ts: string, tz: string) {
+  const { mins } = inTz(ts, tz);
+  const h = Math.floor(mins / 60), m = mins % 60;
+  return `${((h + 11) % 12) + 1}${m ? ":" + String(m).padStart(2, "0") : ""}${h < 12 ? "a" : "p"}`;
+}
+export function weekStart(date: string) {
+  const [y, m, d] = date.split("-").map(Number);
+  const dow = new Date(y, m - 1, d).getDay(); // 0 Sun
+  return addDays(date, -((dow + 6) % 7));
+}
+export const DOW = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+export const hoursBetween = (a: string, b: string, breakMin = 0) => Math.max(0, (Date.parse(b) - Date.parse(a)) / 3.6e6 - breakMin / 60);
+export const hrs = (v: number) => `${v.toFixed(2).replace(/\.?0+$/, "")} h`;

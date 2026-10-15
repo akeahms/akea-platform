@@ -192,3 +192,87 @@ export function HBars(p: { rows: { label: string; value: number; color?: string 
     </div>
   );
 }
+
+// ---------------- shared building blocks ----------------
+export function Modal(p: { title: string; onClose: () => void; wide?: boolean; children: React.ReactNode; onSubmit?: (e: React.FormEvent) => void; footer?: React.ReactNode }) {
+  useEffect(() => {
+    const k = (e: KeyboardEvent) => e.key === "Escape" && p.onClose();
+    window.addEventListener("keydown", k);
+    return () => window.removeEventListener("keydown", k);
+  }, []);
+  const body = (
+    <>
+      <h3>{p.title}</h3>
+      {p.children}
+      {p.footer && <div className="acts" style={{ marginTop: 18, justifyContent: "flex-end" }}>{p.footer}</div>}
+    </>
+  );
+  return (
+    <div className="modal-scrim" onMouseDown={p.onClose}>
+      {p.onSubmit ? (
+        <form className={"modal" + (p.wide ? " wide" : "")} role="dialog" aria-label={p.title} onMouseDown={(e) => e.stopPropagation()} onSubmit={p.onSubmit}>{body}</form>
+      ) : (
+        <div className={"modal" + (p.wide ? " wide" : "")} role="dialog" aria-label={p.title} onMouseDown={(e) => e.stopPropagation()}>{body}</div>
+      )}
+    </div>
+  );
+}
+
+export function Field(p: { label: string; id: string; children: React.ReactNode; hint?: string; span?: boolean }) {
+  return (
+    <div className="field" style={p.span ? { gridColumn: "1 / -1" } : undefined}>
+      <label htmlFor={p.id}>{p.label}</label>
+      {p.children}
+      {p.hint && <span className="hint">{p.hint}</span>}
+    </div>
+  );
+}
+
+export function HotelSelect(p: { hotels: { id: string; name: string; city: string | null }[]; value: string; onChange: (v: string) => void; all?: boolean; id?: string; label?: string }) {
+  return (
+    <select id={p.id || "hotelSel"} aria-label={p.label || "Hotel"} value={p.value} onChange={(e) => p.onChange(e.target.value)}>
+      {p.all && <option value="">All hotels</option>}
+      {p.hotels.map((h) => <option key={h.id} value={h.id}>{h.name}{h.city ? ` · ${h.city}` : ""}</option>)}
+    </select>
+  );
+}
+
+export function Notice(p: { kind: "info" | "bad" | "good"; children: React.ReactNode; onClose?: () => void }) {
+  return (
+    <div className={"banner " + (p.kind === "good" ? "good" : p.kind)} role={p.kind === "bad" ? "alert" : "status"}>
+      <span>{p.children}</span>
+      {p.onClose && <button className="btn sm" onClick={p.onClose} type="button">Dismiss</button>}
+    </div>
+  );
+}
+
+export function SampleBadge({ show }: { show: boolean }) {
+  return show ? <span className="chip" title="Sample data for review — replaced as real data arrives">Sample</span> : null;
+}
+
+export function downloadFile(name: string, content: BlobPart, type = "text/csv") {
+  const url = URL.createObjectURL(new Blob([content], { type }));
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+}
+export function toCsv(rows: (string | number | null | undefined)[][]) {
+  return rows.map((r) => r.map((c) => {
+    const s = c == null ? "" : String(c);
+    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  }).join(",")).join("\r\n");
+}
+
+export function Tabs<T extends string>(p: { value: T; tabs: [T, string][]; onChange: (v: T) => void }) {
+  return (
+    <div className="tabs" role="tablist">
+      {p.tabs.map(([v, l]) => (
+        <button key={v} role="tab" aria-selected={p.value === v} className={p.value === v ? "on" : ""} onClick={() => p.onChange(v)} type="button">{l}</button>
+      ))}
+    </div>
+  );
+}
