@@ -1,0 +1,33 @@
+{
+  "name": "akea-mobile",
+  "main": "expo-router/entry",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "start": "expo start",
+    "ios": "expo start --ios",
+    "android": "expo start --android",
+    "fix": "expo install --fix",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "expo": "~57.0.0",
+    "expo-constants": "*",
+    "expo-haptics": "*",
+    "expo-linking": "*",
+    "expo-local-authentication": "*",
+    "expo-router": "*",
+    "expo-secure-store": "*",
+    "expo-splash-screen": "*",
+    "expo-status-bar": "*",
+    "expo-symbols": "*",
+    "react": "19.2.0",
+    "react-native": "0.86.3",
+    "react-native-safe-area-context": "*",
+    "react-native-screens": "*"
+  },
+  "devDependencies": {
+    "@types/react": "~19.2.0",
+    "typescript": "~5.9.0"
+  }
+}
