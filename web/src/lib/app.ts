@@ -14,7 +14,7 @@ export type Hotel = {
 };
 export type Membership = {
   id: string; tenant_id: string; all_hotels: boolean;
-  roles: { key: string; name: string; approval_limit: number | null; role_permissions: { module: string; level: Level }[] };
+  roles: { key: string; name: string; approval_limit: number | null; requires_mfa: boolean; role_permissions: { module: string; level: Level }[] };
   tenants: Tenant;
 };
 
@@ -30,7 +30,7 @@ export async function loadContext(): Promise<{ membership: Membership | null; ho
   const uid = currentSession()?.user.id;
   if (!uid) return { membership: null, hotels: [] };
   const ms = await db.get<Membership>(
-    `memberships?select=id,tenant_id,all_hotels,roles(key,name,approval_limit,role_permissions(module,level)),tenants(*)&user_id=eq.${uid}&limit=1`,
+    `memberships?select=id,tenant_id,all_hotels,roles(key,name,approval_limit,requires_mfa,role_permissions(module,level)),tenants(*)&user_id=eq.${uid}&limit=1`,
   );
   const membership = ms[0] || null;
   if (!membership) return { membership: null, hotels: [] };

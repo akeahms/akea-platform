@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { auth, onAuth, currentSession, Session } from "./lib/sb";
+import { auth, onAuth, currentSession, Session, mfa } from "./lib/sb";
+import { SocialButtons, MfaGate, AccountSecurity } from "./security";
 import { loadContext, makeCan, Ctx, Membership, Hotel } from "./lib/app";
 import { Portfolio, HotelOverview, Str } from "./pages/dashboards";
 import { Reports, Hotels, Users, Company, Settings } from "./pages/admin";
@@ -19,7 +20,7 @@ function useRoute() {
 
 // ---------------- sign-in screens ----------------
 function AuthScreen({ recovery, onRecovered }: { recovery: boolean; onRecovered: () => void }) {
-  const [mode, setMode] = useState<"in" | "up" | "reset" | "newpw">(recovery ? "newpw" : "in");
+  const [mode, setMode] = useState<"in" | "up" | "reset" | "newpw" | "link">(recovery ? "newpw" : "in");
   const [f, setF] = useState({ name: "", email: "", password: "" });
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ kind: "info" | "bad"; text: string } | null>(null);
@@ -33,6 +34,9 @@ function AuthScreen({ recovery, onRecovered }: { recovery: boolean; onRecovered:
       else if (mode === "up") {
         const r = await auth.signUp(f.email, f.password, f.name);
         if (r.needsConfirmation) setMsg({ kind: "info", text: `Check ${f.email} for a confirmation link, then sign in.` });
+      } else if (mode === "link") {
+        await auth.emailLink(f.email);
+        setMsg({ kind: "info", text: `If ${f.email} has an account, a sign-in link is on its way. Open it on this device.` });
       } else if (mode === "reset") {
         await auth.resetPassword(f.email);
         setMsg({ kind: "info", text: `If ${f.email} has an account, a reset link is on its way.` });
@@ -46,7 +50,7 @@ function AuthScreen({ recovery, onRecovered }: { recovery: boolean; onRecovered:
       setBusy(false);
     }
   }
-  const title = { in: "Sign in", up: "Create your account", reset: "Reset your password", newpw: "Choose a new password" }[mode];
+  const title = { in: "Sign in", up: "Create your account", reset: "Reset your password", newpw: "Choose a new password", link: "Email me a sign-in link" }[mode];
   return (
     <div className="auth">
       <div className="auth-art" aria-hidden="true">
@@ -57,6 +61,7 @@ function AuthScreen({ recovery, onRecovered }: { recovery: boolean; onRecovered:
       <form className="auth-card" onSubmit={submit}>
         <img src="/logo.png" alt="Akea Hotel Management Services" className="auth-logo-sm" />
         <h1>{title}</h1>
+        {(mode === "in" || mode === "up") && <SocialButtons />}
         {mode === "up" && (
           <div className="field"><label htmlFor="aName">Full name</label>
             <input id="aName" required autoComplete="name" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} /></div>
@@ -65,7 +70,7 @@ function AuthScreen({ recovery, onRecovered }: { recovery: boolean; onRecovered:
           <div className="field"><label htmlFor="aEmail">Work email</label>
             <input id="aEmail" type="email" required autoComplete="email" value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} /></div>
         )}
-        {mode !== "reset" && (
+        {mode !== "reset" && mode !== "link" && (
           <div className="field"><label htmlFor="aPw">{mode === "newpw" ? "New password" : "Password"}</label>
             <input id="aPw" type="password" required minLength={mode === "in" ? 1 : 8} autoComplete={mode === "in" ? "current-password" : "new-password"}
               value={f.password} onChange={(e) => setF({ ...f, password: e.target.value })} />
@@ -75,7 +80,10 @@ function AuthScreen({ recovery, onRecovered }: { recovery: boolean; onRecovered:
         {msg && <div className={"banner " + msg.kind} style={{ margin: 0 }}><span>{msg.text}</span></div>}
         <div className="auth-links">
           {mode === "in" && <><button type="button" className="link" onClick={() => setMode("reset")}>Forgot password?</button><button type="button" className="link" onClick={() => setMode("up")}>Create account</button></>}
-          {(mode === "up" || mode === "reset") && <button type="button" className="link" onClick={() => setMode("in")}>Back to sign in</button>}
+          {(mode === "up" || mode === "reset" || mode === "link") && <button type="button" className="link" onClick={() => setMode("in")}>Back to sign in</button>}
+        </div>
+        <div className="auth-links" style={{ justifyContent: "center" }}>
+          {mode === "in" && <button type="button" className="link" onClick={() => setMode("link")}>Sign in without a password</button>}
         </div>
         <p className="fine">New team members: use the email address your administrator invited.</p>
       </form>
@@ -111,7 +119,7 @@ function Shell({ ctx, session }: { ctx: Ctx; session: Session }) {
     document.title = `${t.brand_name || t.name} · Portal`;
   }, [t.accent_color, t.brand_name, t.name]);
   useEffect(() => setMenu(false), [route]);
-  const allowed = (id: string) => NAV.flatMap((g) => g.items).some((i) => i.id === id && ctx.can(i.module));
+  const allowed = (id: string) => id === "account" || NAV.flatMap((g) => g.items).some((i) => i.id === id && ctx.can(i.module));
   const view = (() => {
     const p = allowed(page) ? page : NAV.flatMap((g) => g.items).find((i) => ctx.can(i.module))?.id;
     switch (p) {
@@ -123,6 +131,7 @@ function Shell({ ctx, session }: { ctx: Ctx; session: Session }) {
       case "company": return <Company ctx={ctx} />;
       case "users": return <Users ctx={ctx} />;
       case "settings": return <Settings ctx={ctx} />;
+      case "account": return <AccountSecurity required={ctx.membership.roles.requires_mfa} email={session.user.email} />;
       default: return <div className="empty"><b>Your role doesn't include any portal pages yet.</b><span>Ask your administrator to update your access.</span></div>;
     }
   })();
@@ -151,7 +160,7 @@ function Shell({ ctx, session }: { ctx: Ctx; session: Session }) {
           })}
         </nav>
         <div className="rail-foot">
-          <div className="me"><b>{session.user.email}</b><span>{ctx.membership.roles.name}</span></div>
+          <a className="me" href="#account" title="Sign-in & Security"><b>{session.user.email}</b><span>{ctx.membership.roles.name} · Security</span></a>
           <button className="btn sm" onClick={() => auth.signOut()}>Sign out</button>
         </div>
       </aside>
@@ -177,6 +186,7 @@ export default function App() {
   const [data, setData] = useState<{ membership: Membership | null; hotels: Hotel[] } | null>(null);
   const [err, setErr] = useState("");
   const [tick, setTick] = useState(0);
+  const [mfaState, setMfaState] = useState<"checking" | "needed" | "ok">("checking");
 
   useEffect(() => {
     auth.consumeRedirect().then((kind) => {
@@ -193,6 +203,16 @@ export default function App() {
     loadContext().then(setData, (e) => setErr(e.message));
   }, [session?.user.id, recovery, tick]);
 
+  // Two-step sign-in: required by role, or chosen by the user (has a verified authenticator).
+  useEffect(() => {
+    if (!data?.membership) return;
+    if (mfa.level() === "aal2") { setMfaState("ok"); return; }
+    mfa.factors().then(
+      (fs) => setMfaState(data.membership!.roles.requires_mfa || fs.some((f) => f.status === "verified") ? "needed" : "ok"),
+      () => setMfaState(data.membership!.roles.requires_mfa ? "needed" : "ok"),
+    );
+  }, [data?.membership?.id, session?.access_token]);
+
   const ctx: Ctx | null = useMemo(() => {
     if (!data?.membership) return null;
     return { membership: data.membership, tenant: data.membership.tenants, hotels: data.hotels, can: makeCan(data.membership), reload: () => setTick((x) => x + 1) };
@@ -202,6 +222,10 @@ export default function App() {
   if (!session || recovery) return <AuthScreen recovery={recovery} onRecovered={() => setRecovery(false)} />;
   if (err) return <div className="center"><ErrorBox error={err} retry={() => setTick((x) => x + 1)} /></div>;
   if (!data) return <Loading />;
+  if (data.membership && mfaState === "checking") return <Loading />;
+  if (data.membership && mfaState === "needed")
+    return <MfaGate required={data.membership.roles.requires_mfa} email={session.user.email}
+      onDone={() => { setMfaState(mfa.level() === "aal2" || !data.membership!.roles.requires_mfa ? "ok" : "needed"); setTick((x) => x + 1); }} />;
   if (!ctx)
     return (
       <div className="center">

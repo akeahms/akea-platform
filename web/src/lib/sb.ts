@@ -109,6 +109,16 @@ export const auth = {
     if (j.access_token) save(toSession(j));
     return { needsConfirmation: !j.access_token };
   },
+  // Passwordless: email a one-time sign-in link (existing accounts only).
+  async emailLink(email: string) {
+    const redirect = encodeURIComponent(window.location.origin + "/");
+    const res = await fetch(`${SUPABASE_URL}/auth/v1/otp?redirect_to=${redirect}`, {
+      method: "POST",
+      headers: { apikey: KEY, "Content-Type": "application/json" },
+      body: JSON.stringify({ email, create_user: false }),
+    });
+    if (!res.ok) throw new Error(await errorText(res));
+  },
   async resetPassword(email: string) {
     const redirect = encodeURIComponent(window.location.origin + "/");
     const res = await fetch(`${SUPABASE_URL}/auth/v1/recover?redirect_to=${redirect}`, {
@@ -126,9 +136,21 @@ export const auth = {
     });
     if (!res.ok) throw new Error(await errorText(res));
   },
-  microsoftUrl() {
+  // Which social providers are switched on in Supabase (public endpoint).
+  async providers(): Promise<Record<string, boolean>> {
+    try {
+      const res = await fetch(`${SUPABASE_URL}/auth/v1/settings`, { headers: { apikey: KEY } });
+      if (!res.ok) return {};
+      const j = await res.json();
+      return j.external || {};
+    } catch {
+      return {};
+    }
+  },
+  oauthUrl(provider: string) {
     const redirect = encodeURIComponent(window.location.origin + "/");
-    return `${SUPABASE_URL}/auth/v1/authorize?provider=azure&scopes=email&redirect_to=${redirect}`;
+    const scopes = provider === "azure" ? "&scopes=email" : "";
+    return `${SUPABASE_URL}/auth/v1/authorize?provider=${provider}${scopes}&redirect_to=${redirect}`;
   },
   async signOut() {
     try {
@@ -155,6 +177,60 @@ export const auth = {
     });
     history.replaceState(null, "", window.location.pathname);
     return h.get("type") === "recovery" ? "recovery" : "signin";
+  },
+};
+
+// ---------------- two-factor (TOTP authenticator apps) ----------------
+export type Factor = { id: string; friendly_name?: string; factor_type: string; status: "verified" | "unverified" };
+
+function jwtClaims(token?: string): Record<string, any> {
+  try {
+    const p = (token || "").split(".")[1];
+    return JSON.parse(atob(p.replace(/-/g, "+").replace(/_/g, "/")));
+  } catch {
+    return {};
+  }
+}
+
+export const mfa = {
+  level(): "aal1" | "aal2" {
+    return jwtClaims(session?.access_token).aal === "aal2" ? "aal2" : "aal1";
+  },
+  async factors(): Promise<Factor[]> {
+    const res = await fetch(`${SUPABASE_URL}/auth/v1/user`, { headers: await headers() });
+    if (!res.ok) throw new Error(await errorText(res));
+    const u = await res.json();
+    return (u.factors || []).filter((f: Factor) => f.factor_type === "totp");
+  },
+  async enroll(name: string): Promise<{ id: string; qr: string; secret: string }> {
+    const res = await fetch(`${SUPABASE_URL}/auth/v1/factors`, {
+      method: "POST",
+      headers: await headers({ "Content-Type": "application/json" }),
+      body: JSON.stringify({ factor_type: "totp", friendly_name: name, issuer: "Akea Portal" }),
+    });
+    if (!res.ok) throw new Error(await errorText(res));
+    const j = await res.json();
+    return { id: j.id, qr: j.totp.qr_code, secret: j.totp.secret };
+  },
+  async verify(factorId: string, code: string) {
+    const c = await fetch(`${SUPABASE_URL}/auth/v1/factors/${factorId}/challenge`, { method: "POST", headers: await headers({ "Content-Type": "application/json" }), body: "{}" });
+    if (!c.ok) throw new Error(await errorText(c));
+    const { id: challenge_id } = await c.json();
+    const v = await fetch(`${SUPABASE_URL}/auth/v1/factors/${factorId}/verify`, {
+      method: "POST",
+      headers: await headers({ "Content-Type": "application/json" }),
+      body: JSON.stringify({ challenge_id, code }),
+    });
+    if (!v.ok) {
+      const t = await errorText(v);
+      throw new Error(/invalid|expired/i.test(t) ? "That code didn't work. Check your authenticator app and try the newest code." : t);
+    }
+    const j = await v.json();
+    save({ ...toSession(j), user: j.user || session!.user });
+  },
+  async remove(factorId: string) {
+    const res = await fetch(`${SUPABASE_URL}/auth/v1/factors/${factorId}`, { method: "DELETE", headers: await headers() });
+    if (!res.ok) throw new Error(await errorText(res));
   },
 };
 

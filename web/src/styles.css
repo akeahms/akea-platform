@@ -160,3 +160,22 @@ select, input:not([type=checkbox]):not([type=color]) { background: var(--surface
   .auth-logo-sm { display: block; }
 }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+
+/* ---------- sign-in extras ---------- */
+.social { display: flex; flex-direction: column; gap: 8px; }
+.social-btn { justify-content: center; gap: 10px; width: 100%; color: var(--fg); }
+.social-btn:hover { text-decoration: none; }
+.social-btn svg { width: 18px; height: 18px; }
+.or { display: flex; align-items: center; gap: 12px; color: var(--fg-3); font-size: 12px; }
+.or::before, .or::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+.mfa { display: flex; flex-direction: column; gap: 14px; width: min(440px, 100%); }
+.mfa h2 { margin: 0; font-size: 22px; }
+.mfa p { margin: 0; color: var(--fg-2); }
+.qr { width: 200px; height: 200px; align-self: center; background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 8px; }
+.secret { display: block; margin-top: 6px; padding: 8px 10px; background: var(--surface-2); border-radius: 8px; font-size: 13px; word-break: break-all; }
+.code-input { font-size: 22px !important; letter-spacing: .3em; text-align: center; }
+details summary { cursor: pointer; color: var(--accent); font-weight: 600; font-size: 14px; }
+ul.plain { margin: 0 0 8px; padding-left: 18px; }
+.rail-foot a.me { color: var(--fg); font-weight: 400; }
+.rail-foot a.me:hover { text-decoration: none; }
+.rail-foot a.me:hover b { color: var(--accent); }
