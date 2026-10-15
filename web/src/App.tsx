@@ -67,9 +67,9 @@ function AuthScreen({ recovery, onRecovered }: { recovery: boolean; onRecovered:
         )}
         {mode !== "reset" && (
           <div className="field"><label htmlFor="aPw">{mode === "newpw" ? "New password" : "Password"}</label>
-            <input id="aPw" type="password" required minLength={mode === "in" ? 1 : 10} autoComplete={mode === "in" ? "current-password" : "new-password"}
+            <input id="aPw" type="password" required minLength={mode === "in" ? 1 : 8} autoComplete={mode === "in" ? "current-password" : "new-password"}
               value={f.password} onChange={(e) => setF({ ...f, password: e.target.value })} />
-            {mode !== "in" && <span className="hint">At least 10 characters.</span>}</div>
+            {mode !== "in" && <span className="hint">At least 8 characters.</span>}</div>
         )}
         <button className="btn pri wide" disabled={busy}>{busy ? "Please wait…" : title}</button>
         {msg && <div className={"banner " + msg.kind} style={{ margin: 0 }}><span>{msg.text}</span></div>}
