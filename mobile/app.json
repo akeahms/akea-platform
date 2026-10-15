@@ -11,23 +11,35 @@
       "bundleIdentifier": "com.akeahms.portal",
       "supportsTablet": true,
       "infoPlist": {
-        "NSFaceIDUsageDescription": "Use Face ID to unlock the Akea app quickly.",
         "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {
       "package": "com.akeahms.portal",
-      "adaptiveIcon": { "foregroundImage": "./assets/adaptive-icon.png", "backgroundColor": "#FBF7EE" }
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#FBF7EE"
+      }
     },
     "plugins": [
       "expo-router",
       "expo-secure-store",
-      ["expo-local-authentication", { "faceIDPermission": "Use Face ID to unlock the Akea app quickly." }],
-      ["expo-splash-screen", { "image": "./assets/splash-icon.png", "imageWidth": 220, "backgroundColor": "#FBF7EE" }]
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/splash-icon.png",
+          "imageWidth": 220,
+          "backgroundColor": "#FBF7EE"
+        }
+      ]
     ],
-    "experiments": { "typedRoutes": true },
+    "experiments": {
+      "typedRoutes": true
+    },
     "extra": {
-      "eas": { "projectId": "c5ce65f0-936f-44b3-a362-bc97b485c4a3" },
+      "eas": {
+        "projectId": "c5ce65f0-936f-44b3-a362-bc97b485c4a3"
+      },
       "supabaseUrl": "https://rqyvjloptxdfojaxjirq.supabase.co",
       "supabaseKey": "sb_publishable_Acg0lTpyf3hXxC6USntFFA_MKRwpkmV",
       "portalUrl": "https://akea-portal.onrender.com"

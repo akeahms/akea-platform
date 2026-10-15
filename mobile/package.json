@@ -8,14 +8,14 @@
     "ios": "expo start --ios",
     "android": "expo start --android",
     "fix": "expo install --fix",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "setup": "npx expo install expo-constants expo-haptics expo-linking expo-router expo-secure-store expo-splash-screen expo-status-bar expo-symbols react react-native react-native-safe-area-context react-native-screens && npx expo install --fix"
   },
   "dependencies": {
     "expo": "~57.0.0",
     "expo-constants": "*",
     "expo-haptics": "*",
     "expo-linking": "*",
-    "expo-local-authentication": "*",
     "expo-router": "*",
     "expo-secure-store": "*",
     "expo-splash-screen": "*",
