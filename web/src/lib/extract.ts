@@ -1,5 +1,5 @@
 // Turns document text into fields: invoices (vendor, number, dates, total) and hotel night-audit reports.
-import { parseAmount, parseDate } from "./parse";
+import { parseAmount, parseDate } from "./core";
 
 const NUM = /-?\(?\$?\d{1,3}(?:,\d{3})*(?:\.\d+)?\)?|-?\d+(?:\.\d+)?/g;
 const lines = (t: string) => t.split(/\r?\n/).map((l) => l.replace(/\s+/g, " ").trim()).filter(Boolean);
@@ -52,7 +52,112 @@ export type ReportValues = {
   rooms_available?: number; rooms_sold?: number; out_of_order?: number; comp_rooms?: number; no_shows?: number;
   arrivals?: number; departures?: number; in_house_guests?: number; room_revenue?: number; fnb_revenue?: number; other_revenue?: number;
 };
-export type ReportGuess = { values: ReportValues; deposits: Record<string, number>; business_date: string | null; confidence: number; notes: string[] };
+export type Period = { rooms_available?: number; rooms_sold?: number; room_revenue?: number; total_revenue?: number };
+export type Segment = { segment: string; rooms?: number; revenue?: number; rooms_mtd?: number; revenue_mtd?: number; rooms_ly_mtd?: number; revenue_ly_mtd?: number;
+  rooms_ytd?: number; revenue_ytd?: number; rooms_ly_ytd?: number; revenue_ly_ytd?: number };
+export type ReportExtra = { tax_total?: number; periods?: Record<string, Period>; segments?: Segment[]; format?: string; property_code?: string };
+export type ReportGuess = { values: ReportValues; deposits: Record<string, number>; business_date: string | null; confidence: number; notes: string[]; extra?: ReportExtra };
+
+// ---------------- Hilton OnQ "Final Audit" (exact layout) ----------------
+type Row = { label: string; nums: number[] };
+const HEADER_NOISE = /^(charge type|actual today|name|type|tax type|category|transferred|adjusted|ledger name|cash|card|other|direct bill)\b/i;
+/** Turns a section's lines into labelled rows, re-joining labels the PDF wrapped above/below the numbers. */
+function sectionRows(ls: string[]): Row[] {
+  const out: (Row & { wrapped?: boolean })[] = [];
+  let pending: string[] = [];
+  let attach: (Row & { wrapped?: boolean }) | null = null;
+  for (const l of ls) {
+    const toks = l.split(/\s{2,}/).map((t) => t.trim()).filter(Boolean);
+    const isNum = (t: string) => parseAmount(t.replace(/\s*%$/, "")) !== null;
+    const firstNum = toks.findIndex(isNum);
+    if (firstNum < 0) {
+      if (/actual today|opening balance/i.test(l) || /^(charge type|name|type|tax type|category|transferred|adjusted|ledger name|tax type category)$/i.test(l.trim())) { pending = []; attach = null; continue; }
+      if (attach) { attach.label += " " + l.trim(); attach = null; } else pending.push(l.trim());
+      continue;
+    }
+    const inline = toks.slice(0, firstNum).join(" ");
+    if (HEADER_NOISE.test(inline) && /actual today/i.test(l)) { pending = []; continue; }
+    const nums = toks.slice(firstNum).map((t) => parseAmount(t.replace(/\s*%$/, ""))!).filter((v) => v !== null);
+    const row = { label: [...pending, inline].filter(Boolean).join(" ").replace(/\s+/g, " ").trim(), nums, wrapped: pending.length > 0 };
+    out.push(row);
+    attach = row.wrapped ? row : null;
+    pending = [];
+  }
+  return out;
+}
+const SECTIONS = ["Room Revenue", "Other Room Revenue", "Charges", "Revenue & Charges", "Taxes", "Payments", "Cash Deposit And Cash Drop", "Statistical Counts",
+  "Occupancy", "Revenue Statistics", "Statistics by Market Segment", "Revenue by Market Segment", "Balance Information", "Turn Away Information"];
+export function extractHiltonFinalAudit(text: string, rooms: number): ReportGuess | null {
+  // keep the column gaps (two or more spaces) — they separate labels from numbers
+  const ls = text.split(/\r?\n/).map((l) => l.replace(/\t/g, "  ").trim()).filter(Boolean);
+  if (!ls.some((l) => /^final audit$/i.test(l)) || !ls.some((l) => /^statistical counts$/i.test(l))) return null;
+  // section boundaries: a line that is exactly a known heading (first time for the revenue sections)
+  const idx: [string, number][] = [];
+  ls.forEach((l, i) => { const h = SECTIONS.find((s) => s.toLowerCase() === l.toLowerCase()); if (h && !idx.some(([n]) => n === h)) idx.push([h, i]); });
+  const sec = (name: string) => {
+    const at = idx.findIndex(([n]) => n === name);
+    if (at < 0) return [] as Row[];
+    const end = idx[at + 1]?.[1] ?? ls.length;
+    return sectionRows(ls.slice(idx[at][1] + 1, end));
+  };
+  const totals = (rs: Row[]) => [...rs].reverse().find((r) => /^totals?$/i.test(r.label))?.nums || [];
+  const find = (rs: Row[], re: RegExp) => rs.find((r) => re.test(r.label))?.nums;
+  const roomR = totals(sec("Room Revenue")), otherRoom = totals(sec("Other Room Revenue"));
+  const chargeRows = sec("Charges"), charges = totals(chargeRows);
+  const taxRows = sec("Taxes"), taxes = totals(taxRows);
+  const FNB = /suite shop|market|pantry|food|beverage|breakfast|vending|snack|restaurant|\bbar\b|minibar|coffee|lounge/i;
+  // revenue columns: today(0) adj(1) adj-transferred(2) NET(3) MTD(4) LY-MTD(5) var(6) YTD(7) LY-YTD(8)
+  const col = (r: number[] | undefined, i: number) => (r && r.length > i ? r[i] : 0);
+  const sumRows = (rs: Row[], re: RegExp, i: number) => rs.filter((r) => re.test(r.label) && !/^totals?$/i.test(r.label)).reduce((a, r) => a + col(r.nums, i), 0);
+  const recov = (i: number) => sumRows(taxRows, /recovery/i, i);
+  const fnb = (i: number) => sumRows(chargeRows, FNB, i);
+  const other = (i: number) => col(otherRoom, i) + col(charges, i) - fnb(i) + recov(i);
+  const stats = sec("Statistical Counts");
+  // stats columns: today(0) MTD(1) LY-MTD(2) YTD(3) LY-YTD(4)
+  const st = (re: RegExp, i = 0) => col(find(stats, re), i);
+  const values: ReportValues = {
+    rooms_available: st(/^available rooms$/i) || rooms,
+    rooms_sold: st(/^total sold rooms$/i),
+    out_of_order: st(/^down rooms$/i),
+    comp_rooms: st(/^complimentary rooms$/i),
+    no_shows: st(/^no show$/i),
+    arrivals: st(/^(arrivals|checked in reservations)$/i),
+    departures: st(/^departed reservations$/i),
+    in_house_guests: st(/^total guests$/i),
+    room_revenue: round2(col(roomR, 3)),
+    fnb_revenue: round2(fnb(3)),
+    other_revenue: round2(other(3)),
+  };
+  const period = (si: number, ri: number): Period => ({
+    rooms_available: st(/^available rooms$/i, si), rooms_sold: st(/^total sold rooms$/i, si),
+    room_revenue: round2(col(roomR, ri)), total_revenue: round2(col(roomR, ri) + fnb(ri) + other(ri)),
+  });
+  const periods = { mtd: period(1, 4), ly_mtd: period(2, 5), ytd: period(3, 7), ly_ytd: period(4, 8) };
+  // payments → expected bank deposits
+  const pay = sec("Payments");
+  const P: [string, RegExp][] = [["visa", /^visa$/i], ["mastercard", /^master/i], ["amex", /^amex|american express/i], ["discover", /^discover$/i], ["cash", /^cash$/i], ["direct_bill", /^bill to|direct bill/i]];
+  const deposits: Record<string, number> = {};
+  for (const [k, re] of P) { const v = pay.filter((r) => re.test(r.label)).reduce((a, r) => a + col(r.nums, 3), 0); if (v) deposits[k] = round2(v); }
+  // market segments: today(0) adj(1) NET(2) MTD(3) LY-MTD(4) YTD(5) LY-YTD(6)
+  const segR = sec("Statistics by Market Segment"), segV = sec("Revenue by Market Segment");
+  const segments: Segment[] = segR.filter((r) => !/^totals?$/i.test(r.label)).map((r) => {
+    const v = segV.find((x) => x.label.toLowerCase() === r.label.toLowerCase())?.nums;
+    return { segment: titleCase(r.label), rooms: col(r.nums, 2), revenue: round2(col(v, 2)), rooms_mtd: col(r.nums, 3), revenue_mtd: round2(col(v, 3)),
+      rooms_ly_mtd: col(r.nums, 4), revenue_ly_mtd: round2(col(v, 4)), rooms_ytd: col(r.nums, 5), revenue_ytd: round2(col(v, 5)), rooms_ly_ytd: col(r.nums, 6), revenue_ly_ytd: round2(col(v, 6)) };
+  }).filter((s) => s.rooms_ytd || s.revenue_ytd || s.rooms || s.revenue);
+  const notes: string[] = [];
+  let conf = 0.5;
+  if (values.rooms_sold && values.rooms_sold <= (values.rooms_available || rooms)) conf += 0.2; else notes.push("Rooms sold not found or larger than rooms available.");
+  if (values.room_revenue && values.rooms_sold) { const adr = values.room_revenue / values.rooms_sold; if (adr > 30 && adr < 1500) conf += 0.2; else notes.push(`Average rate looks unusual (${adr.toFixed(2)}).`); }
+  const revStat = stats.length ? 0.1 : 0; conf += revStat;
+  if (values.rooms_available && rooms && Math.abs(values.rooms_available - rooms) > 1) notes.push(`Report shows ${values.rooms_available} rooms; the hotel is set up with ${rooms}.`);
+  const dm = ls.slice(0, 6).join(" ").replace(/\s+/g, " ").match(/\bDate:\s*([A-Z][a-z]{2}\s+\d{1,2},\s*\d{4}|\d{1,2}\/\d{1,2}\/\d{2,4})/);
+  const code = ls[1]?.match(/^([A-Z]{5})\b/)?.[1];
+  return { values, deposits, business_date: dm ? parseDate(dm[1]) : null, confidence: Math.min(1, conf), notes,
+    extra: { tax_total: round2(col(taxes, 3) - recov(3)), periods, segments, format: "Hilton OnQ Final Audit", property_code: code } };
+}
+const round2 = (v: number) => Math.round(v * 100) / 100;
+const titleCase = (s: string) => s.toLowerCase().replace(/\b([a-z])/g, (m) => m.toUpperCase()).replace(/\bSmerf\b/, "SMERF");
 
 const R: [keyof ReportValues, RegExp, RegExp?][] = [
   ["rooms_sold", /(rooms?\s*(sold|occupied)|occupied\s*rooms|total\s*rooms\s*occupied|rooms\s*rented|paid\s*occupied)\b/i, /%|percent|comp|vacant|available/i],
@@ -73,6 +178,8 @@ const PAY: [string, RegExp][] = [
 ];
 
 export function extractReport(text: string, rooms: number): ReportGuess {
+  const exact = extractHiltonFinalAudit(text, rooms);
+  if (exact) return exact;
   const ls = lines(text);
   const notes: string[] = [];
   const values: ReportValues = {};

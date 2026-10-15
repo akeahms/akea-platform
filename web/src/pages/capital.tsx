@@ -369,7 +369,7 @@ export function LoanPackage({ ctx }: { ctx: Ctx }) {
           </div>
           <fieldset className="hotel-picks" style={{ marginTop: 14 }}><legend>Include</legend>
             {([["str", "STR market performance"], ["budget", "Current-year budget vs actual"], ["permits", "Permits & licences (with copies)"], ["insurance", "Insurance schedule (with policies)"], ["docs", "Legal, tax & financial documents from the vault"], ["pfs", "My personal financial statement"]] as [keyof typeof incl, string][]).map(([k, l]) => (
-              <label key={k} className="check-row" htmlFor={"lp" + k}><input id={"lp" + k} type="checkbox" checked={incl[k]} onChange={(e) => setIncl({ ...incl, [k]: e.target.checked })} />{l}</label>
+              <label key={k} className="check-row" htmlFor={"lp" + String(k)}><input id={"lp" + String(k)} type="checkbox" checked={incl[k]} onChange={(e) => setIncl({ ...incl, [k]: e.target.checked })} />{l}</label>
             ))}
           </fieldset>
           <button className="btn pri wide" style={{ marginTop: 16, minHeight: 48 }} disabled={busy || !hotel} onClick={build}>{busy ? "Building…" : "Build & download ZIP"}</button>
@@ -435,7 +435,7 @@ export function PfsPage({ ctx }: { ctx: Ctx }) {
   return (
     <>
       <PageHead eyebrow="Capital" title="Personal Financial Statement" desc="Your PFS for lenders. It is private to your login — no one else in the company, including administrators, can see it. Don't enter Social Security numbers here."
-        actions={<><button className="btn" onClick={async () => downloadFile(`Personal Financial Statement ${cur.as_of}.pdf`, await pfsPdf(cur, ctx.tenant.brand_name || ctx.tenant.name), "application/pdf")}>Download PDF</button><button className="btn pri" onClick={save}>Save</button></>} />
+        actions={<><button className="btn" onClick={async () => downloadFile(`Personal Financial Statement ${cur.as_of}.pdf`, (await pfsPdf(cur, ctx.tenant.brand_name || ctx.tenant.name)) as BlobPart, "application/pdf")}>Download PDF</button><button className="btn pri" onClick={save}>Save</button></>} />
       {msg && <Notice kind={msg.kind} onClose={() => setMsg(null)}>{msg.text}</Notice>}
       {q.loading && !q.data && <Loading />}
       {q.data && (

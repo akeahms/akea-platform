@@ -1,117 +1,7 @@
-import React, { useRef, useState } from "react";
-import { db, storage, currentSession } from "../lib/sb";
-import { Ctx, REPORT_LABEL, guessReportType, yesterday, fmtDate, Hotel } from "../lib/app";
-import { PageHead, Card, Pill, Loading, ErrorBox, Empty, useAsync } from "../ui";
-
-const statusKind = (s: string) =>
-  s === "processed" ? "good" : s === "needs_review" ? "warn" : s === "failed" ? "bad" : s === "superseded" ? "mute" : "info";
-
-// ======================= Report Inbox =======================
-export function Reports({ ctx }: { ctx: Ctx }) {
-  const operating = ctx.hotels.filter((h) => h.status === "operating");
-  const canUpload = ctx.can("reports", "edit");
-  const [hotelId, setHotelId] = useState(operating[0]?.id || "");
-  const [date, setDate] = useState(yesterday());
-  const [busy, setBusy] = useState(false);
-  const [msg, setMsg] = useState<{ kind: "good" | "bad"; text: string } | null>(null);
-  const [over, setOver] = useState(false);
-  const fileRef = useRef<HTMLInputElement>(null);
-  const q = useAsync(async () => {
-    const [rows, missing] = await Promise.all([
-      db.get<any>(`reports?select=id,hotel_id,report_type,business_date,file_name,file_format,source,status,confidence,received_at&tenant_id=eq.${ctx.tenant.id}&order=received_at.desc&limit=80`),
-      db.rpc<any[]>("missing_reports", { p_date: yesterday() }),
-    ]);
-    return { rows, missing };
-  }, [ctx.tenant.id]);
-
-  async function upload(files: FileList | File[]) {
-    if (!hotelId) return;
-    setBusy(true);
-    setMsg(null);
-    let ok = 0;
-    try {
-      for (const f of Array.from(files)) {
-        const ext = (f.name.split(".").pop() || "").toUpperCase();
-        const path = `${ctx.tenant.id}/${hotelId}/${date}/${Date.now()}-${f.name.replace(/[^\w.\- ]+/g, "_")}`;
-        await storage.upload("reports", path, f);
-        await db.insert("reports", {
-          tenant_id: ctx.tenant.id, hotel_id: hotelId, report_type: guessReportType(f.name), business_date: date,
-          file_name: f.name, file_path: path, file_format: ext, source: "upload", status: "received",
-          uploaded_by: currentSession()?.user.id,
-        });
-        ok++;
-      }
-      setMsg({ kind: "good", text: `${ok} file${ok === 1 ? "" : "s"} uploaded. They're stored and queued for reading.` });
-      q.reload();
-    } catch (e: any) {
-      setMsg({ kind: "bad", text: `Upload stopped after ${ok} file${ok === 1 ? "" : "s"}: ${e.message}` });
-    } finally {
-      setBusy(false);
-      if (fileRef.current) fileRef.current.value = "";
-    }
-  }
-  const hName = (id: string) => ctx.hotels.find((h) => h.id === id)?.name || "—";
-
-  return (
-    <>
-      <PageHead eyebrow="Data" title="Report Inbox" desc="Upload night audit, STR, OTA and other reports in any format. Each file is stored with its hotel and business date and queued for automatic reading." />
-      {canUpload && (
-        <Card title="Upload reports">
-          <div className="fgrid" style={{ marginBottom: 14 }}>
-            <div className="field"><label htmlFor="upHotel">Hotel</label>
-              <select id="upHotel" value={hotelId} onChange={(e) => setHotelId(e.target.value)}>
-                {operating.map((h) => <option key={h.id} value={h.id}>{h.name} · {h.city}</option>)}
-              </select></div>
-            <div className="field"><label htmlFor="upDate">Business date</label>
-              <input id="upDate" type="date" value={date} max={yesterday()} onChange={(e) => setDate(e.target.value)} /></div>
-          </div>
-          <div className={"drop" + (over ? " over" : "")}
-            onDragOver={(e) => { e.preventDefault(); setOver(true); }}
-            onDragLeave={() => setOver(false)}
-            onDrop={(e) => { e.preventDefault(); setOver(false); if (e.dataTransfer.files.length) upload(e.dataTransfer.files); }}>
-            <b>{busy ? "Uploading…" : "Drop files here"}</b>
-            <span className="small muted">PDF, Excel, CSV, TXT, XML, images · up to 50 MB each</span>
-            <label className="btn" htmlFor="upFile">Choose files</label>
-            <input id="upFile" ref={fileRef} type="file" multiple hidden disabled={busy}
-              onChange={(e) => e.target.files && e.target.files.length && upload(e.target.files)} />
-          </div>
-          {msg && <div className={"banner " + (msg.kind === "good" ? "info" : "bad")} style={{ marginTop: 12, marginBottom: 0 }}><span>{msg.text}</span></div>}
-        </Card>
-      )}
-      <div className="sp" />
-      {q.loading && !q.data && <Loading />}
-      {q.error && <ErrorBox error={q.error} retry={q.reload} />}
-      {q.data && (
-        <div className="grid g-2-1">
-          <Card title="Recent reports" flush>
-            {q.data.rows.length ? (
-              <div className="tw"><table>
-                <thead><tr><th>File</th><th>Hotel</th><th>Report</th><th>Date</th><th>Source</th><th>Status</th></tr></thead>
-                <tbody>{q.data.rows.map((r: any) => (
-                  <tr key={r.id}>
-                    <td><span className="small">{r.file_name}</span> <span className="chip">{r.file_format}</span></td>
-                    <td className="nowrap">{hName(r.hotel_id)}</td>
-                    <td>{REPORT_LABEL[r.report_type] || r.report_type}</td>
-                    <td className="nowrap">{r.business_date ? fmtDate(r.business_date) : "—"}</td>
-                    <td>{r.source}</td>
-                    <td><Pill kind={statusKind(r.status) as any}>{r.status.replace("_", " ")}</Pill></td>
-                  </tr>
-                ))}</tbody></table></div>
-            ) : <Empty title="No reports yet." />}
-          </Card>
-          <Card title={`Missing for ${fmtDate(yesterday())}`} flush>
-            {q.data.missing.length ? (
-              <div className="list">{q.data.missing.map((m: any, i: number) => (
-                <div className="li" key={i}><span className="stripe" style={{ background: "var(--bad)" }} />
-                  <div><div className="t">{REPORT_LABEL[m.report_type]}</div><div className="s">{hName(m.hotel_id)}</div></div></div>
-              ))}</div>
-            ) : <Empty title="All required reports are in." />}
-          </Card>
-        </div>
-      )}
-    </>
-  );
-}
+import React, { useState } from "react";
+import { db, currentSession } from "../lib/sb";
+import { Ctx, Hotel } from "../lib/app";
+import { PageHead, Card, Loading, ErrorBox, Empty, useAsync } from "../ui";
 
 // ======================= Hotels =======================
 export function Hotels({ ctx }: { ctx: Ctx }) {
@@ -123,8 +13,8 @@ export function Hotels({ ctx }: { ctx: Ctx }) {
     if (!editing) return;
     setErr("");
     try {
-      const { id, name, rooms, str_id, property_code, address, city, state, zip, brand_family } = editing;
-      await db.update("hotels", `id=eq.${id}`, { name, rooms: Number(rooms), str_id: str_id || null, property_code: property_code || null, address, city, state, zip, brand_family });
+      const { id, name, rooms, str_id, property_code, address, city, state, zip, brand_family, report_email } = editing as any;
+      await db.update("hotels", `id=eq.${id}`, { name, rooms: Number(rooms), str_id: str_id || null, property_code: property_code || null, address, city, state, zip, brand_family, report_email: report_email ? String(report_email).trim().toLowerCase() : null });
       setEditing(null);
       ctx.reload();
     } catch (e: any) { setErr(e.message); }
@@ -161,7 +51,7 @@ export function Hotels({ ctx }: { ctx: Ctx }) {
           <form className="modal" onClick={(e) => e.stopPropagation()} onSubmit={save} aria-label="Edit hotel">
             <h3>Edit {editing.name}</h3>
             <div className="fgrid">
-              {([["name", "Name"], ["brand_family", "Brand"], ["rooms", "Rooms"], ["str_id", "STR ID"], ["property_code", "Property code"], ["address", "Street address"], ["city", "City"], ["state", "State"], ["zip", "ZIP"]] as [keyof Hotel, string][]).map(([k, l]) => (
+              {([["name", "Name"], ["brand_family", "Brand"], ["rooms", "Rooms"], ["str_id", "STR ID"], ["property_code", "Property code"], ["address", "Street address"], ["city", "City"], ["state", "State"], ["zip", "ZIP"], ["report_email" as any, "Nightly report email address"]] as [keyof Hotel, string][]).map(([k, l]) => (
                 <div className="field" key={k}><label htmlFor={"h-" + k}>{l}</label>
                   <input id={"h-" + k} type={k === "rooms" ? "number" : "text"} min={k === "rooms" ? 1 : undefined} required={k === "name" || k === "rooms"}
                     value={(editing[k] as any) ?? ""} onChange={(e) => setEditing({ ...editing, [k]: e.target.value } as Hotel)} /></div>

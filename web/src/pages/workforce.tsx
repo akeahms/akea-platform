@@ -63,7 +63,7 @@ export function Schedule({ ctx }: { ctx: Ctx }) {
       .filter((d) => !deptFilter || d.id === deptFilter)
       .map((d) => ({ dept: d, emps: data.emps.filter((e) => e.department_id === d.id) }))
       .filter((g) => g.emps.length);
-    const payOf = new Map(data.pay.map((p) => [p.employee_id, p]));
+    const payOf = new Map<string, Pay>(data.pay.map((p: Pay) => [p.employee_id, p] as [string, Pay]));
     const dayHours = days.map((day) => data.shifts.filter((s) => inTz(s.starts_at, tz).date === day && (!deptFilter || s.department_id === deptFilter))
       .reduce((a, s) => a + hoursBetween(s.starts_at, s.ends_at, s.break_minutes), 0));
     const dayCost = days.map((day) => data.shifts.filter((s) => inTz(s.starts_at, tz).date === day && s.employee_id && (!deptFilter || s.department_id === deptFilter))

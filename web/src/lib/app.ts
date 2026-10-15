@@ -10,7 +10,7 @@ export type Tenant = {
 export type Hotel = {
   id: string; tenant_id: string; entity_id: string | null; name: string; brand_family: string | null; address: string | null;
   city: string | null; state: string | null; zip: string | null; rooms: number; str_id: string | null; property_code: string | null;
-  status: "operating" | "development" | "sold"; opening_date: string | null; timezone: string;
+  status: "operating" | "development" | "sold"; opening_date: string | null; timezone: string; report_email?: string | null;
 };
 export type Membership = {
   id: string; tenant_id: string; all_hotels: boolean;

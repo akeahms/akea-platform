@@ -3,7 +3,13 @@ import { auth, onAuth, currentSession, Session, mfa } from "./lib/sb";
 import { SocialButtons, MfaGate, AccountSecurity } from "./security";
 import { loadContext, makeCan, Ctx, Membership, Hotel } from "./lib/app";
 import { Portfolio, HotelOverview, Str } from "./pages/dashboards";
-import { Reports, Hotels, Users, Company, Settings } from "./pages/admin";
+import { Hotels, Users, Company, Settings } from "./pages/admin";
+import { Reports, Snapshot } from "./pages/reports";
+import { Schedule, TimeClock, Timesheets, Team } from "./pages/workforce";
+import { Bills, Vendors, Purchasing, Banking, Accounting } from "./pages/finance";
+import { Vault, Permits, Insurance, AlertsPanel, useAlerts } from "./pages/compliance";
+import { Investors, InvestorPortal, LoanPackage, PfsPage, Construction } from "./pages/capital";
+import { AskAI, PdfFiller } from "./pages/intelligence";
 import { Loading, ErrorBox } from "./ui";
 
 // ---------------- routing: #route/param ----------------
@@ -92,41 +98,109 @@ function AuthScreen({ recovery, onRecovered }: { recovery: boolean; onRecovered:
 }
 
 // ---------------- navigation ----------------
-const NAV: { group: string; items: { id: string; label: string; module: string; icon: string }[] }[] = [
+type NavItem = { id: string; label: string; module: string; min?: "view" | "edit" | "approve" | "admin"; icon: string; show?: (ctx: Ctx) => boolean };
+const I = {
+  grid: "M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM14 14h7v7h-7z", bed: "M3 18V7M3 14h18v4M21 14v-3a3 3 0 0 0-3-3h-7v6", target: "M12 4a8 8 0 1 0 0 16 8 8 0 0 0 0-16zM12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8z",
+  spark: "M12 3l1.8 4.7L18 9l-4.2 1.3L12 15l-1.8-4.7L6 9l4.2-1.3zM19 15l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8z", inbox: "M3 13l3-8h12l3 8v6H3zM3 13h5l1 3h6l1-3h5", mail: "M3 6h18v12H3zM3 7l9 6 9-6",
+  cal: "M4 6h16v14H4zM4 10h16M8 3v5M16 3v5", clock: "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM12 7v5l3 2", sheet: "M5 3h10l4 4v14H5zM9 12h6M9 16h6M9 8h2", people: "M9 8a3.5 3.5 0 1 0 0-.01M2.5 20a6.5 6.5 0 0 1 13 0M16 4.5a3.5 3.5 0 0 1 0 7M18 14.5a6 6 0 0 1 3.5 5.5",
+  bill: "M6 3h12v18l-3-2-3 2-3-2-3 2zM9 8h6M9 12h6", bank: "M3 10l9-6 9 6M5 10v8M9 10v8M15 10v8M19 10v8M3 20h18", ledger: "M4 19V5M4 19h16M8 15l3-4 3 2 5-6", store: "M4 8l2-4h12l2 4M4 8v12h16V8M4 8h16M9 20v-6h6v6", cart: "M3 4h2l2 11h11l2-8H6M9 20a1 1 0 1 0 0-.01M17 20a1 1 0 1 0 0-.01",
+  shield: "M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z", badge: "M12 3l2.5 5 5.5.8-4 3.9.9 5.5L12 15.6 7.1 18.2l.9-5.5-4-3.9 5.5-.8z", folder: "M3 6h6l2 2h10v11H3z", map: "M9 4l6 2 6-2v14l-6 2-6-2-6 2V6zM9 4v14M15 6v14",
+  pie: "M12 3v9h9a9 9 0 1 1-9-9zM14 3.5A8 8 0 0 1 20.5 10H14z", zip: "M6 3h9l4 4v14H6zM10 3v2M10 7v2M10 11v2M10 15h2v3h-2z", user: "M12 8a4 4 0 1 0 0-.01M4 21a8 8 0 0 1 16 0", crane: "M4 21h16M6 21V5l8-2v4M6 5h14M18 5v6M17 11h2v3h-2zM10 21v-6h4v6",
+  pdf: "M6 3h9l4 4v14H6zM9 13h2a1.5 1.5 0 0 0 0-3H9v6M14 10v6", hotel: "M5 3h14v18H5zM9 7h2M13 7h2M9 11h2M13 11h2M10 21v-4h4v4", book: "M4 5a2 2 0 0 1 2-2h14v16H6a2 2 0 0 0-2 2zM4 19V5", palette: "M12 3a9 9 0 1 0 0 18 3 3 0 0 1 0-6h2a7 7 0 0 0 7-7c0-2.8-4-5-9-5z",
+};
+const isInvestorOnly = (ctx: Ctx) => ctx.membership.roles.key === "investor";
+const NAV: { group: string; items: NavItem[] }[] = [
   { group: "Dashboards", items: [
-    { id: "portfolio", label: "Portfolio Overview", module: "dashboards", icon: "M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM14 14h7v7h-7z" },
-    { id: "hotel", label: "Hotel Overview", module: "dashboards", icon: "M3 18V7M3 14h18v4M21 14v-3a3 3 0 0 0-3-3h-7v6" },
-    { id: "str", label: "STR Market", module: "str", icon: "M12 4a8 8 0 1 0 0 16 8 8 0 0 0 0-16zM12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8z" },
+    { id: "portfolio", label: "Portfolio Overview", module: "dashboards", icon: I.grid },
+    { id: "hotel", label: "Hotel Overview", module: "dashboards", icon: I.bed },
+    { id: "str", label: "STR Market", module: "str", icon: I.target },
+    { id: "ask", label: "Ask AI", module: "dashboards", icon: I.spark },
+    { id: "investor-portal", label: "Investor Portal", module: "investor", icon: I.pie, show: (c) => isInvestorOnly(c) || c.can("investor", "admin") },
   ] },
-  { group: "Data", items: [
-    { id: "reports", label: "Report Inbox", module: "reports", icon: "M3 13l3-8h12l3 8v6H3zM3 13h5l1 3h6l1-3h5" },
+  { group: "Reports", items: [
+    { id: "reports", label: "Report Inbox", module: "reports", icon: I.inbox },
+    { id: "snapshot", label: "Nightly Snapshot", module: "reports", icon: I.mail },
+  ] },
+  { group: "Workforce", items: [
+    { id: "schedule", label: "Schedule", module: "workforce", icon: I.cal },
+    { id: "timeclock", label: "Time Clock", module: "workforce", icon: I.clock },
+    { id: "timesheets", label: "Timesheets & Payroll", module: "workforce", min: "edit", icon: I.sheet },
+    { id: "team", label: "Team", module: "workforce", min: "edit", icon: I.people },
+  ] },
+  { group: "Finance", items: [
+    { id: "bills", label: "Bills & Bill Pay", module: "finance", icon: I.bill },
+    { id: "banking", label: "Banking & Reconciliation", module: "finance", icon: I.bank },
+    { id: "accounting", label: "Accounting & Budget", module: "finance", icon: I.ledger },
+    { id: "vendors", label: "Vendors", module: "finance", icon: I.store },
+    { id: "purchasing", label: "Purchasing", module: "purchasing", icon: I.cart },
+  ] },
+  { group: "Compliance", items: [
+    { id: "permits", label: "Permits & Licences", module: "compliance", icon: I.badge },
+    { id: "insurance", label: "Insurance", module: "compliance", icon: I.shield },
+    { id: "vault", label: "Document Vault", module: "compliance", icon: I.folder },
+    { id: "plans", label: "Floor Plans", module: "compliance", icon: I.map },
+  ] },
+  { group: "Capital", items: [
+    { id: "investors", label: "Investor Relations", module: "investor", min: "edit", icon: I.pie },
+    { id: "loan", label: "Loan Package", module: "finance", min: "approve", icon: I.zip },
+    { id: "pfs", label: "Personal Financial Statement", module: "company", min: "view", icon: I.user, show: (c) => c.membership.roles.requires_mfa },
+    { id: "construction", label: "Construction", module: "construction", icon: I.crane },
+  ] },
+  { group: "Tools", items: [
+    { id: "pdf", label: "PDF Form Filler", module: "dashboards", icon: I.pdf, show: (c) => c.can("dashboards") || c.can("finance") || c.can("compliance") },
   ] },
   { group: "Setup", items: [
-    { id: "hotels", label: "Hotels", module: "dashboards", icon: "M5 3h14v18H5zM9 7h2M13 7h2M9 11h2M13 11h2M10 21v-4h4v4" },
-    { id: "company", label: "Company Information", module: "company", icon: "M4 5a2 2 0 0 1 2-2h14v16H6a2 2 0 0 0-2 2zM4 19V5" },
-    { id: "users", label: "Users & Permissions", module: "users", icon: "M9 8a3.5 3.5 0 1 0 0-.01M2.5 20a6.5 6.5 0 0 1 13 0M16 4.5a3.5 3.5 0 0 1 0 7M18 14.5a6 6 0 0 1 3.5 5.5" },
-    { id: "settings", label: "White-label Settings", module: "settings", icon: "M12 3a9 9 0 1 0 0 18 3 3 0 0 1 0-6h2a7 7 0 0 0 7-7c0-2.8-4-5-9-5z" },
+    { id: "hotels", label: "Hotels", module: "dashboards", icon: I.hotel },
+    { id: "company", label: "Company Information", module: "company", icon: I.book },
+    { id: "users", label: "Users & Permissions", module: "users", icon: I.people },
+    { id: "settings", label: "White-label Settings", module: "settings", icon: I.palette },
   ] },
 ];
+const allowedItem = (ctx: Ctx, i: NavItem) => (i.show ? i.show(ctx) : ctx.can(i.module, i.min || "view"));
 
 function Shell({ ctx, session }: { ctx: Ctx; session: Session }) {
   const [route, go] = useRoute();
   const [menu, setMenu] = useState(false);
+  const [bell, setBell] = useState(false);
+  const alerts = useAlerts(ctx);
+  const unread = (alerts.data || []).filter((n: any) => !n.read).length;
   const [page, param] = route.split("/");
   const t = ctx.tenant;
   useEffect(() => {
     if (t.accent_color) document.documentElement.style.setProperty("--accent", t.accent_color);
     document.title = `${t.brand_name || t.name} · Portal`;
   }, [t.accent_color, t.brand_name, t.name]);
-  useEffect(() => setMenu(false), [route]);
-  const allowed = (id: string) => id === "account" || NAV.flatMap((g) => g.items).some((i) => i.id === id && ctx.can(i.module));
+  useEffect(() => { setMenu(false); setBell(false); }, [route]);
+  const items = NAV.flatMap((g) => g.items);
+  const allowed = (id: string) => id === "account" || items.some((i) => i.id === id && allowedItem(ctx, i));
   const view = (() => {
-    const p = allowed(page) ? page : NAV.flatMap((g) => g.items).find((i) => ctx.can(i.module))?.id;
+    const p = allowed(page) ? page : items.find((i) => allowedItem(ctx, i))?.id;
     switch (p) {
       case "portfolio": return <Portfolio ctx={ctx} go={go} />;
       case "hotel": return <HotelOverview ctx={ctx} hotelId={param} go={go} />;
       case "str": return <Str ctx={ctx} hotelId={param} go={go} />;
       case "reports": return <Reports ctx={ctx} />;
+      case "snapshot": return <Snapshot ctx={ctx} />;
+      case "ask": return <AskAI ctx={ctx} />;
+      case "investor-portal": return <InvestorPortal ctx={ctx} />;
+      case "schedule": return <Schedule ctx={ctx} />;
+      case "timeclock": return <TimeClock ctx={ctx} />;
+      case "timesheets": return <Timesheets ctx={ctx} />;
+      case "team": return <Team ctx={ctx} />;
+      case "bills": return <Bills ctx={ctx} />;
+      case "banking": return <Banking ctx={ctx} />;
+      case "accounting": return <Accounting ctx={ctx} />;
+      case "vendors": return <Vendors ctx={ctx} />;
+      case "purchasing": return <Purchasing ctx={ctx} />;
+      case "permits": return <Permits ctx={ctx} />;
+      case "insurance": return <Insurance ctx={ctx} />;
+      case "vault": return <Vault ctx={ctx} />;
+      case "plans": return <Vault ctx={ctx} folder="floor_plans" key="plans" />;
+      case "investors": return <Investors ctx={ctx} />;
+      case "loan": return <LoanPackage ctx={ctx} />;
+      case "pfs": return <PfsPage ctx={ctx} />;
+      case "construction": return <Construction ctx={ctx} />;
+      case "pdf": return <PdfFiller ctx={ctx} />;
       case "hotels": return <Hotels ctx={ctx} />;
       case "company": return <Company ctx={ctx} />;
       case "users": return <Users ctx={ctx} />;
@@ -144,7 +218,7 @@ function Shell({ ctx, session }: { ctx: Ctx; session: Session }) {
         </div>
         <nav className="nav">
           {NAV.map((g) => {
-            const items = g.items.filter((i) => ctx.can(i.module));
+            const items = g.items.filter((i) => allowedItem(ctx, i));
             if (!items.length) return null;
             return (
               <React.Fragment key={g.group}>
@@ -170,8 +244,13 @@ function Shell({ ctx, session }: { ctx: Ctx; session: Session }) {
           <button className="btn sm menu" onClick={() => setMenu(true)} aria-label="Open menu">Menu</button>
           <span className="top-co">{t.brand_name || t.name}</span>
           <span className="spacer" />
+          <button className="btn sm bell" onClick={() => { setBell(!bell); if (!bell) alerts.reload(); }} aria-label={`Alerts${unread ? `, ${unread} unread` : ""}`}>
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><path d="M6 16V11a6 6 0 0 1 12 0v5l2 2H4zM10 20a2 2 0 0 0 4 0" /></svg>
+            {unread > 0 && <span className="badge">{unread > 99 ? "99+" : unread}</span>}
+          </button>
           <span className="top-role">{ctx.membership.roles.name}</span>
         </header>
+        {bell && <AlertsPanel ctx={ctx} onClose={() => { setBell(false); alerts.reload(); }} />}
         <main className="content">{view}</main>
       </div>
     </div>

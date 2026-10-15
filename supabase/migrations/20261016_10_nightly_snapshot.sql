@@ -1,0 +1,10 @@
+-- Nightly snapshot support (applied live as "nightly_snapshot_tables"):
+--   daily_metrics.tax_total
+--   report_stats(hotel_id, business_date, period mtd|ly_mtd|ytd|ly_ytd, rooms_available, rooms_sold, room_revenue, total_revenue)
+--   daily_segments(hotel_id, business_date, segment, rooms, revenue, *_mtd, *_ly_mtd, *_ytd, *_ly_ytd)
+--   snapshot_recipients(tenant_id, hotel_id null = portfolio, email)   RLS: reports view / admin write
+--   snapshot_sends(tenant_id, hotel_id, business_date, recipients, status, detail)
+--   _ingest_extras(report, extra)  — tax, period figures, segments
+--   ingest_report_v2(...)          — signed-in users with reports edit
+--   ingest_report_system_v2(...)   — service role only (inbound email)
+-- Full definitions: run `select pg_get_functiondef('public._ingest_extras(public.reports, jsonb)'::regprocedure);`
