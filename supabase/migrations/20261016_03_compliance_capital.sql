@@ -187,7 +187,7 @@ create policy vault_read on storage.objects for select to authenticated using (
     owner = auth.uid()
     or exists (select 1 from public.documents d where d.file_path = storage.objects.name)
     or exists (select 1 from public.bills b where b.file_path = storage.objects.name)));
-create policy vault_delete on storage.objects for delete to authenticated using (
+create policy vault_remove_own on storage.objects for delete to authenticated using (
   bucket_id = 'vault' and owner = auth.uid());
 
 -- ---------- renewal & due-date notifications ----------
