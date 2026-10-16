@@ -6,7 +6,7 @@ import { readBankStatement, documentText, BankParse } from "../lib/parse";
 import { extractInvoice } from "../lib/extract";
 import { QuickBooks } from "./quickbooks";
 
-type Gl = { id: string; number: string; name: string; type: string; section: string | null; active: boolean };
+type Gl = { id: string; hotel_id: string | null; number: string; name: string; type: string; section: string | null; active: boolean };
 type Vendor = { id: string; name: string; dba: string | null; category: string | null; contact_name: string | null; email: string | null; phone: string | null; address: string | null;
   payment_terms: string | null; default_gl: string | null; remit_method: string; w9_on_file: boolean; tax_id_last4: string | null; is_1099: boolean; status: string; notes: string | null; data_source: string };
 type Bill = { id: string; hotel_id: string; vendor_id: string | null; po_id: string | null; invoice_no: string | null; invoice_date: string | null; due_date: string | null; amount: number;
@@ -22,13 +22,21 @@ const sanitize = (n: string) => n.replace(/[^\w.\- ]+/g, "_");
 function useLookups(ctx: Ctx) {
   return useAsync(async () => {
     const [gl, vendors] = await Promise.all([
-      db.get<Gl>(`gl_accounts?select=id,number,name,type,section,active&tenant_id=eq.${ctx.tenant.id}&order=number.asc`),
+      db.get<Gl>(`gl_accounts?select=id,hotel_id,number,name,type,section,active&tenant_id=eq.${ctx.tenant.id}&order=number.asc`),
       db.get<Vendor>(`vendors?select=*&tenant_id=eq.${ctx.tenant.id}&order=name.asc`),
     ]);
     return { gl, vendors };
   }, [ctx.tenant.id]);
 }
 const glLabel = (g?: Gl) => (g ? `${g.number} · ${g.name}` : "—");
+// Each hotel has its own chart of accounts (hotel_id = that hotel); hotel_id = null is the company template.
+const glOf = (gl: Gl[] | undefined, hotelId: string | null | undefined) => (gl || []).filter((g) => (hotelId ? g.hotel_id === hotelId : !g.hotel_id));
+/** The hotel's own account matching an id (a template default such as a vendor's default account maps by number). */
+const ownGl = (gl: Gl[] | undefined, id: string | null | undefined, hotelId: string) => {
+  const g = (gl || []).find((x) => x.id === id);
+  if (!g) return "";
+  return g.hotel_id === hotelId ? g.id : (gl || []).find((x) => x.hotel_id === hotelId && x.number === g.number)?.id || "";
+};
 async function openFile(path: string) {
   const url = await storage.signedUrl("vault", path, 120);
   window.open(url, "_blank", "noopener");
@@ -164,7 +172,7 @@ function BillForm({ ctx, vendors, gl, hotelId, onClose }: { ctx: Ctx; vendors: V
       const g = extractInvoice(text, vendors);
       const v = vendors.find((x) => x.id === g.vendor_id);
       setF((o: any) => ({ ...o, vendor_id: g.vendor_id || o.vendor_id, invoice_no: g.invoice_no || o.invoice_no, invoice_date: g.invoice_date || o.invoice_date,
-        due_date: g.due_date || o.due_date, amount: g.amount ?? o.amount, gl_account_id: v?.default_gl || o.gl_account_id }));
+        due_date: g.due_date || o.due_date, amount: g.amount ?? o.amount, gl_account_id: ownGl(gl, v?.default_gl, o.hotel_id) || o.gl_account_id }));
       setReading(`Read in ${Math.round(performance.now() - t0)} ms · ${Math.round(g.confidence * 100)}% of key fields found. Check before saving.`);
     } catch (e: any) { setReading(`Couldn't read this file (${e.message}). Fill in the fields.`); }
   }
@@ -179,7 +187,7 @@ function BillForm({ ctx, vendors, gl, hotelId, onClose }: { ctx: Ctx; vendors: V
         await storage.upload("vault", file_path, file);
       }
       await db.insert("bills", { tenant_id: ctx.tenant.id, hotel_id: f.hotel_id, vendor_id: f.vendor_id, invoice_no: f.invoice_no || null, invoice_date: f.invoice_date || null,
-        due_date: f.due_date || null, amount: Number(f.amount), gl_account_id: f.gl_account_id || vendors.find((v) => v.id === f.vendor_id)?.default_gl || null,
+        due_date: f.due_date || null, amount: Number(f.amount), gl_account_id: f.gl_account_id || ownGl(gl, vendors.find((v) => v.id === f.vendor_id)?.default_gl, f.hotel_id) || null,
         description: f.description || null, status: submit ? "pending_approval" : "draft", file_path, source: file ? "upload" : "manual" }, "id");
       onClose(submit ? "Bill submitted for approval." : "Bill saved as a draft.");
     } catch (e: any) { setErr(e.message); } finally { setBusy(false); }
@@ -196,7 +204,7 @@ function BillForm({ ctx, vendors, gl, hotelId, onClose }: { ctx: Ctx; vendors: V
       <div className="fgrid">
         <Field label="Hotel" id="bH"><HotelSelect hotels={operating} value={f.hotel_id} onChange={(v) => setF({ ...f, hotel_id: v })} id="bH" /></Field>
         <Field label="Vendor" id="bV">
-          <select id="bV" value={f.vendor_id} onChange={(e) => setF({ ...f, vendor_id: e.target.value, gl_account_id: vendors.find((v) => v.id === e.target.value)?.default_gl || f.gl_account_id })}>
+          <select id="bV" value={f.vendor_id} onChange={(e) => setF({ ...f, vendor_id: e.target.value, gl_account_id: ownGl(gl, vendors.find((v) => v.id === e.target.value)?.default_gl, f.hotel_id) || f.gl_account_id })}>
             <option value="">Choose…</option>{vendors.filter((v) => v.status === "active").map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
           </select>
         </Field>
@@ -206,7 +214,7 @@ function BillForm({ ctx, vendors, gl, hotelId, onClose }: { ctx: Ctx; vendors: V
         <Field label="Due date" id="bDue"><input id="bDue" type="date" value={f.due_date || ""} onChange={(e) => setF({ ...f, due_date: e.target.value })} /></Field>
         <Field label="Expense account" id="bG">
           <select id="bG" value={f.gl_account_id} onChange={(e) => setF({ ...f, gl_account_id: e.target.value })}>
-            <option value="">Vendor default</option>{gl.filter((g) => g.type === "expense" || g.type === "asset").map((g) => <option key={g.id} value={g.id}>{glLabel(g)}</option>)}
+            <option value="">Vendor default</option>{glOf(gl, f.hotel_id).filter((g) => g.type === "expense" || g.type === "asset").map((g) => <option key={g.id} value={g.id}>{glLabel(g)}</option>)}
           </select>
         </Field>
         <Field label="Description" id="bDesc" span><input id="bDesc" value={f.description} onChange={(e) => setF({ ...f, description: e.target.value })} /></Field>
@@ -312,7 +320,7 @@ export function Vendors({ ctx }: { ctx: Ctx }) {
             <Field label="Pays by" id="vRem"><select id="vRem" value={edit.remit_method} onChange={(e) => setEdit({ ...edit, remit_method: e.target.value })}>
               <option value="ach">ACH</option><option value="check">Check</option><option value="card">Card</option><option value="wire">Wire</option><option value="autopay">Autopay</option></select></Field>
             <Field label="Default expense account" id="vGl"><select id="vGl" value={edit.default_gl || ""} onChange={(e) => setEdit({ ...edit, default_gl: e.target.value || null })}>
-              <option value="">None</option>{lk.data.gl.filter((g) => g.type === "expense").map((g) => <option key={g.id} value={g.id}>{glLabel(g)}</option>)}</select></Field>
+              <option value="">None</option>{glOf(lk.data.gl, null).filter((g) => g.type === "expense").map((g) => <option key={g.id} value={g.id}>{glLabel(g)}</option>)}</select></Field>
             <Field label="Tax ID · last 4 digits" id="vTax"><input id="vTax" maxLength={4} inputMode="numeric" value={edit.tax_id_last4 || ""} onChange={(e) => setEdit({ ...edit, tax_id_last4: e.target.value.replace(/\D/g, "") || null })} /></Field>
             <Field label="Status" id="vSt"><select id="vSt" value={edit.status} onChange={(e) => setEdit({ ...edit, status: e.target.value })}><option value="active">Active</option><option value="inactive">Inactive</option></select></Field>
           </div>
@@ -336,7 +344,7 @@ export function Purchasing({ ctx }: { ctx: Ctx }) {
   const [hotelId, setHotelId] = useState("");
   const canEdit = ctx.can("purchasing", "edit"), canApprove = ctx.can("purchasing", "approve");
   const lk = useLookups(ctx);
-  const depts = useAsync(() => db.get<any>(`departments?select=id,name,color&tenant_id=eq.${ctx.tenant.id}&order=sort.asc`), []);
+  const depts = useAsync(() => db.get<any>(`departments?select=id,hotel_id,name,color&tenant_id=eq.${ctx.tenant.id}&hotel_id=not.is.null&order=sort.asc`), []);
   const q = useAsync(() => db.get<any>(`purchase_orders?select=*,po_lines(*)&tenant_id=eq.${ctx.tenant.id}${hotelId ? `&hotel_id=eq.${hotelId}` : ""}&order=created_at.desc&limit=200`), [hotelId]);
   const [msg, setMsg] = useState<{ kind: "good" | "bad"; text: string } | null>(null);
   const [form, setForm] = useState<any | null>(null);
@@ -402,7 +410,7 @@ export function Purchasing({ ctx }: { ctx: Ctx }) {
           <div className="fgrid">
             <Field label="Hotel" id="poH"><HotelSelect hotels={operating} value={form.hotel_id} onChange={(v) => setForm({ ...form, hotel_id: v })} id="poH" /></Field>
             <Field label="Vendor" id="poV"><select id="poV" value={form.vendor_id} onChange={(e) => setForm({ ...form, vendor_id: e.target.value })}><option value="">Choose…</option>{lk.data.vendors.filter((v) => v.status === "active").map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}</select></Field>
-            <Field label="Department" id="poD"><select id="poD" value={form.department_id} onChange={(e) => setForm({ ...form, department_id: e.target.value })}><option value="">—</option>{(depts.data || []).map((d: any) => <option key={d.id} value={d.id}>{d.name}</option>)}</select></Field>
+            <Field label="Department" id="poD"><select id="poD" value={form.department_id} onChange={(e) => setForm({ ...form, department_id: e.target.value })}><option value="">—</option>{(depts.data || []).filter((d: any) => d.hotel_id === form.hotel_id).map((d: any) => <option key={d.id} value={d.id}>{d.name}</option>)}</select></Field>
             <Field label="Needed by" id="poN"><input id="poN" type="date" value={form.needed_by} onChange={(e) => setForm({ ...form, needed_by: e.target.value })} /></Field>
           </div>
           <h4 style={{ margin: "16px 0 8px" }}>Items</h4>
@@ -415,7 +423,7 @@ export function Purchasing({ ctx }: { ctx: Ctx }) {
                   <td><input aria-label="Item" value={l.item} onChange={(e) => set("item", e.target.value)} style={{ width: "100%" }} /></td>
                   <td><input aria-label="Quantity" type="number" min="0" step="1" value={l.qty} onChange={(e) => set("qty", e.target.value)} style={{ width: 70 }} /></td>
                   <td><input aria-label="Unit cost" type="number" min="0" step="0.01" value={l.unit_cost} onChange={(e) => set("unit_cost", e.target.value)} style={{ width: 100 }} /></td>
-                  <td><select aria-label="Account" value={l.gl_account_id} onChange={(e) => set("gl_account_id", e.target.value)}><option value="">—</option>{lk.data!.gl.filter((g) => g.type === "expense").map((g) => <option key={g.id} value={g.id}>{glLabel(g)}</option>)}</select></td>
+                  <td><select aria-label="Account" value={l.gl_account_id} onChange={(e) => set("gl_account_id", e.target.value)}><option value="">—</option>{glOf(lk.data!.gl, form.hotel_id).filter((g) => g.type === "expense").map((g) => <option key={g.id} value={g.id}>{glLabel(g)}</option>)}</select></td>
                   <td className="n">{usd(Number(l.qty || 0) * Number(l.unit_cost || 0), 2)}</td>
                   <td>{form.lines.length > 1 && <button className="btn sm" onClick={() => setForm({ ...form, lines: form.lines.filter((_: any, j: number) => j !== i) })} aria-label="Remove line">×</button>}</td>
                 </tr>
@@ -601,13 +609,13 @@ export function Banking({ ctx }: { ctx: Ctx }) {
           </table></div>
         </Modal>
       )}
-      {matching && <ResolveModal t={matching} expected={expected.data || []} gl={lk.data?.gl || []} onClose={() => setMatching(null)} act={act} />}
+      {matching && <ResolveModal t={matching} expected={expected.data || []} gl={glOf(lk.data?.gl, matching.hotel_id)} onClose={() => setMatching(null)} act={act} />}
       {addAcct && (
         <Modal title="Add bank account" onClose={() => setAddAcct(null)} onSubmit={async (e) => {
           e.preventDefault();
           try {
             if (addAcct.last4 && !/^\d{4}$/.test(addAcct.last4)) throw new Error("Enter only the last 4 digits of the account number.");
-            const gl = lk.data?.gl.find((g) => g.number === (addAcct.kind === "payroll" ? "1010" : "1000"));
+            const gl = glOf(lk.data?.gl, addAcct.hotel_id).find((g) => g.number === (addAcct.kind === "payroll" ? "1010" : "1000"));
             await db.insert("bank_accounts", { ...addAcct, tenant_id: ctx.tenant.id, last4: addAcct.last4 || null, gl_account_id: gl?.id || null }, "id");
             setAddAcct(null); accts.reload();
           } catch (err: any) { setMsg({ kind: "bad", text: err.message }); setAddAcct(null); }
@@ -774,7 +782,7 @@ function BudgetEditor({ ctx }: { ctx: Ctx }) {
       setDraft({}); setMsg({ kind: "good", text: `${rows.length} budget cells saved.` }); q.reload();
     } catch (e: any) { setMsg({ kind: "bad", text: e.message }); }
   }
-  const accts = (lk.data?.gl || []).filter((g) => g.type === "expense");
+  const accts = glOf(lk.data?.gl, hotelId).filter((g) => g.type === "expense");
   return (
     <>
       <div className="toolbar"><HotelSelect hotels={operating} value={hotelId} onChange={(v) => { setHotelId(v); setDraft({}); }} /><span className="small muted">{year} operating expense budget · rooms revenue budget comes from the daily budget</span>
@@ -856,7 +864,7 @@ function Journal({ ctx }: { ctx: Ctx }) {
               const set = (k: string, v: any) => setForm({ ...form, lines: form.lines.map((x: any, j: number) => (j === i ? { ...x, [k]: v } : x)) });
               return (
                 <tr key={i}>
-                  <td><select aria-label="Account" value={l.account_id} onChange={(e) => set("account_id", e.target.value)}><option value="">Choose…</option>{lk.data!.gl.map((g) => <option key={g.id} value={g.id}>{glLabel(g)}</option>)}</select></td>
+                  <td><select aria-label="Account" value={l.account_id} onChange={(e) => set("account_id", e.target.value)}><option value="">Choose…</option>{glOf(lk.data!.gl, hotelId).map((g) => <option key={g.id} value={g.id}>{glLabel(g)}</option>)}</select></td>
                   <td><input aria-label="Debit" type="number" step="0.01" min="0" value={l.debit} onChange={(e) => set("debit", e.target.value)} style={{ width: 110 }} /></td>
                   <td><input aria-label="Credit" type="number" step="0.01" min="0" value={l.credit} onChange={(e) => set("credit", e.target.value)} style={{ width: 110 }} /></td>
                   <td><input aria-label="Line memo" value={l.memo || ""} onChange={(e) => set("memo", e.target.value)} /></td>
@@ -873,28 +881,45 @@ function Journal({ ctx }: { ctx: Ctx }) {
 function ChartOfAccounts({ ctx }: { ctx: Ctx }) {
   const lk = useLookups(ctx);
   const canAdmin = ctx.can("finance", "admin");
+  const [scope, setScope] = useState<string>(ctx.hotels[0]?.id || "");   // a hotel id, or "" = company template
   const [form, setForm] = useState<any | null>(null);
   const [msg, setMsg] = useState<{ kind: "good" | "bad"; text: string } | null>(null);
   const groups = ["asset", "liability", "equity", "revenue", "expense"];
+  const list = glOf(lk.data?.gl, scope || null);
+  const template = glOf(lk.data?.gl, null);
+  const missing = scope ? template.filter((t) => !list.some((a) => a.number === t.number)) : [];
+  const hotel = ctx.hotels.find((h) => h.id === scope);
+  async function addTemplate() {
+    try { const n = await db.rpc<number>("apply_templates", { p_hotel: scope }); setMsg({ kind: "good", text: `${n} template account${n === 1 ? "" : "s"} and department${n === 1 ? "" : "s"} added to ${hotel?.name}.` }); lk.reload(); }
+    catch (e: any) { setMsg({ kind: "bad", text: e.message }); }
+  }
   return (
     <>
-      <div className="toolbar"><span className="small muted">USALI-style accounts used across every hotel.</span><span className="grow" />
-        {canAdmin && <button className="btn pri" onClick={() => setForm({ number: "", name: "", type: "expense", section: "" })}>Add account</button>}</div>
+      <div className="toolbar">
+        <select aria-label="Chart of accounts for" value={scope} onChange={(e) => setScope(e.target.value)}>
+          {ctx.hotels.map((h) => <option key={h.id} value={h.id}>{h.name}{h.city ? ` · ${h.city}` : ""}</option>)}
+          <option value="">Company template (starting point for new hotels)</option>
+        </select>
+        <span className="small muted">{scope ? `${hotel?.name}'s own books. Nothing here is shared with other hotels.` : "New hotels start with a copy of this list and then own it. Changing it doesn't change any hotel's existing books."}</span>
+        <span className="grow" />
+        {canAdmin && scope && missing.length > 0 && <button className="btn" onClick={addTemplate}>Add {missing.length} template account{missing.length === 1 ? "" : "s"}</button>}
+        {canAdmin && <button className="btn pri" onClick={() => setForm({ number: "", name: "", type: "expense", section: "" })}>Add account</button>}
+      </div>
       {msg && <Notice kind={msg.kind} onClose={() => setMsg(null)}>{msg.text}</Notice>}
       {lk.data && (
         <div className="grid g2">{groups.map((g) => (
           <Card key={g} title={({ asset: "Assets", liability: "Liabilities", equity: "Equity", revenue: "Revenue", expense: "Expenses" } as Record<string, string>)[g]} flush>
-            <div className="tw"><table><tbody>{lk.data!.gl.filter((a) => a.type === g).map((a) => (
+            <div className="tw"><table><tbody>{list.filter((a) => a.type === g).map((a) => (
               <tr key={a.id}><td className="num" style={{ width: 70 }}><b>{a.number}</b></td><td>{a.name}</td><td className="small muted">{a.section}</td></tr>
             ))}</tbody></table></div>
           </Card>
         ))}</div>
       )}
       {form && (
-        <Modal title="Add account" onClose={() => setForm(null)} onSubmit={async (e) => {
+        <Modal title={scope ? `Add account to ${hotel?.name}` : "Add account to the company template"} onClose={() => setForm(null)} onSubmit={async (e) => {
           e.preventDefault();
-          try { await db.insert("gl_accounts", { ...form, tenant_id: ctx.tenant.id }, "id"); setForm(null); setMsg({ kind: "good", text: "Account added." }); lk.reload(); }
-          catch (err: any) { setMsg({ kind: "bad", text: err.message }); setForm(null); }
+          try { await db.insert("gl_accounts", { ...form, tenant_id: ctx.tenant.id, hotel_id: scope || null }, "id"); setForm(null); setMsg({ kind: "good", text: scope ? `Account added to ${hotel?.name} only.` : "Added to the template. Use “Add template accounts” on a hotel to give it this account." }); lk.reload(); }
+          catch (err: any) { setMsg({ kind: "bad", text: /duplicate|unique/i.test(err.message) ? `Account ${form.number} already exists here.` : err.message }); setForm(null); }
         }} footer={<><button type="button" className="btn" onClick={() => setForm(null)}>Cancel</button><button className="btn pri">Add</button></>}>
           <div className="fgrid">
             <Field label="Number" id="gN"><input id="gN" required value={form.number} onChange={(e) => setForm({ ...form, number: e.target.value })} /></Field>

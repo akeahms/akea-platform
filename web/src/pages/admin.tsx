@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { db, currentSession } from "../lib/sb";
 import { Ctx, Hotel, Level } from "../lib/app";
-import { PageHead, Card, Loading, ErrorBox, Empty, useAsync, Notice, Pill } from "../ui";
+import { PageHead, Card, Loading, ErrorBox, Empty, useAsync, Notice, Pill, downloadFile, toCsv } from "../ui";
 
 // ======================= Hotels =======================
 export function Hotels({ ctx }: { ctx: Ctx }) {
@@ -19,13 +19,29 @@ export function Hotels({ ctx }: { ctx: Ctx }) {
       ctx.reload();
     } catch (e: any) { setErr(e.message); }
   }
+  const [exporting, setExporting] = useState("");
+  const [exportMsg, setExportMsg] = useState<{ kind: "good" | "bad"; text: string } | null>(null);
+  async function exportHotel(h: Hotel) {
+    setExporting(h.id); setExportMsg(null);
+    try {
+      const { files, rows } = await hotelExport(h);
+      const { default: JSZip } = await import("jszip");
+      const zip = new JSZip();
+      for (const [name, csv] of Object.entries(files)) zip.file(`${name}.csv`, csv);
+      zip.file("README.txt", `${h.name} — complete data export from the Akea portal, ${new Date().toISOString().slice(0, 10)}.\r\nOne CSV file per kind of record, this hotel only. Files are empty where the hotel has no records or your role can't see them (for example pay rates).\r\n`);
+      const blob = await zip.generateAsync({ type: "uint8array" });
+      downloadFile(`${h.name.replace(/[^\w\- ]+/g, "")} data ${new Date().toISOString().slice(0, 10)}.zip`, blob as unknown as BlobPart, "application/zip");
+      setExportMsg({ kind: "good", text: `Exported ${rows.toLocaleString()} records from ${h.name} in ${Object.keys(files).length} files.` });
+    } catch (e: any) { setExportMsg({ kind: "bad", text: e.message }); } finally { setExporting(""); }
+  }
   const groups: [string, Hotel[]][] = [
     ["Operating", ctx.hotels.filter((h) => h.status === "operating")],
     ["In development", ctx.hotels.filter((h) => h.status === "development")],
   ];
   return (
     <>
-      <PageHead eyebrow="Setup" title="Hotels" desc="The hotels in this company. Room counts drive every per-room KPI, so check them first." />
+      <PageHead eyebrow="Setup" title="Hotels" desc="The hotels in this company. Each hotel keeps its own books, team and records; nothing is shared between hotels. Room counts drive every per-room KPI, so check them first." />
+      {exportMsg && <Notice kind={exportMsg.kind} onClose={() => setExportMsg(null)}>{exportMsg.text}</Notice>}
       {groups.map(([g, list]) => list.length > 0 && (
         <React.Fragment key={g}>
           <Card title={g} flush>
@@ -39,7 +55,10 @@ export function Hotels({ ctx }: { ctx: Ctx }) {
                   <td className="n">{h.rooms}</td>
                   <td>{h.str_id || "—"}</td>
                   <td>{h.property_code || "—"}</td>
-                  <td>{canEdit && <button className="btn sm" onClick={() => setEditing({ ...h })}>Edit</button>}</td>
+                  <td><div className="row-actions">
+                    {canEdit && <button className="btn sm" onClick={() => setEditing({ ...h })}>Edit</button>}
+                    {canEdit && <button className="btn sm" disabled={!!exporting} onClick={() => exportHotel(h)}>{exporting === h.id ? "Exporting…" : "Export data"}</button>}
+                  </div></td>
                 </tr>
               ))}</tbody></table></div>
           </Card>
@@ -366,4 +385,38 @@ export function Settings({ ctx }: { ctx: Ctx }) {
       </form>
     </>
   );
+}
+
+// ======================= Hotel data export =======================
+// Everything one hotel owns, as CSV files (e.g. when a hotel is sold or changes management). Row security still applies.
+const EXPORT_TABLES: [string, string][] = [
+  ["gl_accounts", "*"], ["departments", "*"],
+  ["employees", "id,hotel_id,first_name,last_name,email,phone,department_id,position,employment_type,status,hire_date"], ["employee_pay", "*"],
+  ["shifts", "*"], ["time_punches", "*"], ["shift_requests", "*"],
+  ["daily_metrics", "*"], ["daily_segments", "*"], ["report_stats", "*"], ["budget_daily", "*"], ["budget_gl", "*"], ["str_periods", "*"],
+  ["reports", "*"], ["required_reports", "*"], ["expected_deposits", "*"],
+  ["bank_accounts", "*"], ["statement_imports", "*"], ["bank_transactions", "*"],
+  ["bills", "*"], ["purchase_orders", "*"], ["po_lines", "*"], ["journal_entries", "*"], ["journal_lines", "*"],
+  ["permits", "*"], ["insurance_policies", "*"], ["documents", "*"],
+  ["construction_budget", "*"], ["construction_draws", "*"], ["construction_milestones", "*"], ["change_orders", "*"],
+  ["investor_holdings", "*"], ["distributions", "*"],
+  ["qbo_settings", "*"], ["qbo_account_map", "*"], ["qbo_sync_log", "*"], ["snapshot_recipients", "*"], ["snapshot_sends", "*"], ["notifications", "*"],
+];
+async function hotelExport(h: Hotel) {
+  const files: Record<string, string> = { hotel: toCsv([Object.keys(h), Object.values(h).map((v) => (v == null ? "" : typeof v === "object" ? JSON.stringify(v) : String(v)))]) };
+  let rows = 1;
+  for (const [table, cols] of EXPORT_TABLES) {
+    const all: any[] = [];
+    try {
+      for (let offset = 0; offset < 200000; offset += 1000) {
+        const page = await db.get<any>(`${table}?select=${cols}&hotel_id=eq.${h.id}&limit=1000&offset=${offset}`);
+        all.push(...page);
+        if (page.length < 1000) break;
+      }
+    } catch { /* not visible to this role: leave the file empty */ }
+    const keys = all.length ? Object.keys(all[0]) : [];
+    files[table] = toCsv([keys, ...all.map((r) => keys.map((k) => (r[k] == null ? "" : typeof r[k] === "object" ? JSON.stringify(r[k]) : r[k])))]);
+    rows += all.length;
+  }
+  return { files, rows };
 }

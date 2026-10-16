@@ -33,7 +33,7 @@ export function QuickBooks({ ctx }: { ctx: Ctx }) {
   const data = useAsync(async () => {
     if (!c) return null;
     const [gls, qas, maps, settings, log] = await Promise.all([
-      db.get<any>(`gl_accounts?select=id,number,name,type&tenant_id=eq.${ctx.tenant.id}&active=eq.true&order=number.asc`),
+      db.get<any>(`gl_accounts?select=id,number,name,type&hotel_id=eq.${hotelId}&active=eq.true&order=number.asc`),
       db.get<any>(`qbo_accounts?select=qbo_id,name,full_name,acct_num,account_type&hotel_id=eq.${hotelId}&order=full_name.asc`),
       db.get<any>(`qbo_account_map?select=gl_account_id,qbo_account_id&hotel_id=eq.${hotelId}`),
       db.get<any>(`qbo_settings?select=*&hotel_id=eq.${hotelId}`),

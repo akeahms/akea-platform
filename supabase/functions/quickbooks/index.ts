@@ -103,7 +103,7 @@ async function onPortal(req: Request) {
   if (action === "refresh_accounts") return json({ ok: true, accounts: await pullAccounts(admin, c) });
   if (action === "auto_map") {
     const [{ data: gls }, { data: qas }, { data: maps }] = await Promise.all([
-      admin.from("gl_accounts").select("id,number,name,type").eq("tenant_id", hotel.tenant_id).eq("active", true),
+      admin.from("gl_accounts").select("id,number,name,type").eq("hotel_id", hotel.id).eq("active", true),
       admin.from("qbo_accounts").select("qbo_id,name,full_name,acct_num,account_type").eq("hotel_id", hotel.id),
       admin.from("qbo_account_map").select("gl_account_id").eq("hotel_id", hotel.id),
     ]);

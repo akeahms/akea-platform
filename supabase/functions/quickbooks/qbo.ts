@@ -192,7 +192,7 @@ export async function syncHotel(admin: any, c: Conn, opts: { yesterday: string; 
   const limit = opts.limit ?? 150;
   const [{ data: s }, { data: gls }, { data: maps }, { data: logs }] = await Promise.all([
     admin.from("qbo_settings").select("*").eq("hotel_id", c.hotel_id).maybeSingle(),
-    admin.from("gl_accounts").select("id,number,name,type").eq("tenant_id", c.tenant_id),
+    admin.from("gl_accounts").select("id,number,name,type").eq("hotel_id", c.hotel_id),    // this hotel's own chart of accounts
     admin.from("qbo_account_map").select("gl_account_id,qbo_account_id").eq("hotel_id", c.hotel_id),
     admin.from("qbo_sync_log").select("object_type,object_key,status,qbo_id,attempts").eq("hotel_id", c.hotel_id),
   ]);

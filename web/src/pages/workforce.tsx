@@ -42,7 +42,7 @@ export function Schedule({ ctx }: { ctx: Ctx }) {
     if (!hotelId) return null;
     const from = wallToUtc(week, "00:00", tz), to = wallToUtc(addDays(week, 7), "00:00", tz);
     const [depts, emps, shifts, pay] = await Promise.all([
-      db.get<Dept>(`departments?select=id,name,color,sort&tenant_id=eq.${ctx.tenant.id}&order=sort.asc`),
+      db.get<Dept>(`departments?select=id,name,color,sort&hotel_id=eq.${hotelId}&order=sort.asc`),
       db.get<Emp>(`employees?select=${EMP_COLS}&hotel_id=eq.${hotelId}&status=eq.active&order=last_name.asc`),
       db.get<Shift>(`shifts?select=*&hotel_id=eq.${hotelId}&starts_at=gte.${from}&starts_at=lt.${to}&order=starts_at.asc`),
       ctx.can("workforce", "approve") ? db.get<Pay>(`employee_pay?select=employee_id,pay_type,rate,ot_eligible&hotel_id=eq.${hotelId}`) : Promise.resolve([] as Pay[]),
@@ -348,7 +348,7 @@ export function TimeClock({ ctx }: { ctx: Ctx }) {
     const [punches, emps, depts, shifts] = await Promise.all([
       db.get<any>(`time_punches?select=id,employee_id,clock_in,clock_out,source,shift_id&hotel_id=eq.${hotelId}&or=(clock_out.is.null,clock_in.gte.${dayStart})&order=clock_in.desc`),
       db.get<Emp>(`employees?select=${EMP_COLS}&hotel_id=eq.${hotelId}&status=eq.active`),
-      db.get<Dept>(`departments?select=id,name,color,sort&tenant_id=eq.${ctx.tenant.id}`),
+      db.get<Dept>(`departments?select=id,name,color,sort&hotel_id=eq.${hotelId}`),
       db.get<Shift>(`shifts?select=*&hotel_id=eq.${hotelId}&starts_at=gte.${dayStart}&starts_at=lt.${wallToUtc(addDays(todayIn(tz), 1), "00:00", tz)}`),
     ]);
     return { punches, emps, depts, shifts };
@@ -614,7 +614,7 @@ export function Team({ ctx }: { ctx: Ctx }) {
   const q = useAsync(async () => {
     const [emps, depts, pay] = await Promise.all([
       db.get<Emp>(`employees?select=${EMP_COLS}&hotel_id=eq.${hotelId}${show === "active" ? "&status=eq.active" : ""}&order=last_name.asc`),
-      db.get<Dept>(`departments?select=id,name,color,sort&tenant_id=eq.${ctx.tenant.id}&order=sort.asc`),
+      db.get<Dept>(`departments?select=id,name,color,sort&hotel_id=eq.${hotelId}&order=sort.asc`),
       canPay ? db.get<Pay>(`employee_pay?select=employee_id,pay_type,rate,ot_eligible&hotel_id=eq.${hotelId}`) : Promise.resolve([] as Pay[]),
     ]);
     return { emps, depts, pay };
