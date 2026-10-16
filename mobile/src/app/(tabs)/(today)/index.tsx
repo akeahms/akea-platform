@@ -1,8 +1,9 @@
+import { PRODUCT_NAME } from "@/constants";
 import React, { useEffect, useState } from "react";
 import { StyleSheet, Text, View } from "react-native";
 import * as Haptics from "expo-haptics";
 import { db } from "@/lib/sb";
-import { useApp, useLoad, usd, pct, dayIn, timeIn, hoursBetween } from "@/lib/app";
+import { useApp, useLoad, usd, pct, dayIn, timeIn, hoursBetween, midnightUtc, mondayOf } from "@/lib/app";
 import { Screen, Card, Button, Stat, Row, Empty, ErrorText, Pill } from "@/components/ui";
 import { brand, colors, space } from "@/theme";
 
@@ -20,10 +21,10 @@ export default function Today() {
   const mine = useLoad(async () => {
     if (!app.employee) return { shift: null as any, week: 0 };
     const today = dayIn(tz);
-    const monday = (() => { const d = new Date(today + "T12:00:00"); d.setDate(d.getDate() - ((d.getDay() + 6) % 7)); return d.toISOString().slice(0, 10); })();
+    const weekStart = midnightUtc(mondayOf(today), tz);   // Monday 00:00 at the hotel, as a UTC instant
     const [shifts, punches] = await Promise.all([
       db.get<any>(`shifts?select=starts_at,ends_at,position,break_minutes&employee_id=eq.${app.employee.id}&published=eq.true&ends_at=gte.${new Date().toISOString()}&order=starts_at.asc&limit=1`),
-      db.get<any>(`time_punches?select=clock_in,clock_out,break_minutes&employee_id=eq.${app.employee.id}&clock_in=gte.${monday}T00:00:00&order=clock_in.asc`),
+      db.get<any>(`time_punches?select=clock_in,clock_out,break_minutes&employee_id=eq.${app.employee.id}&clock_in=gte.${weekStart}&order=clock_in.asc`),
     ]);
     const week = punches.reduce((a: number, p: any) => a + hoursBetween(p.clock_in, p.clock_out || new Date().toISOString(), p.break_minutes), 0);
     return { shift: shifts[0] || null, week };
@@ -32,7 +33,7 @@ export default function Today() {
   const showKpis = app.can("dashboards");
   const kpis = useLoad(async () => {
     if (!showKpis) return null;
-    const y = dayIn("America/Chicago", -1);
+    const y = dayIn(app.hotels[0]?.timezone || tz, -1);   // last night in the hotels' own time zone
     const rows = await db.get<any>(`daily_metrics?select=hotel_id,rooms_available,rooms_sold,room_revenue,fnb_revenue,other_revenue&business_date=eq.${y}`);
     return { date: y, rows };
   }, [showKpis]);
@@ -64,18 +65,22 @@ export default function Today() {
           ) : (
             <Text style={styles.muted}>{c?.clock_out ? `Last clocked out at ${timeIn(c.clock_out, tz)}` : "Not clocked in yet today."}</Text>
           )}
-          {c?.clocked_in
+          {clock.error && !c ? (
+            // status unknown: don't offer Clock in to someone who may already be on the clock
+            <><ErrorText text={`Couldn't load your time clock. ${clock.error}`} /><Button title="Try again" kind="secondary" onPress={clock.refresh} /></>
+          ) : clock.loading && !c ? null : c?.clocked_in
             ? <Button big kind="danger" title="Clock out" busy={busy} onPress={() => punch("out")} />
             : <Button big title="Clock in" busy={busy} onPress={() => punch("in")} />}
           {err ? <ErrorText text={err} /> : null}
+          {mine.error ? <ErrorText text={`Couldn't load your hours: ${mine.error}`} /> : null}
           <View style={styles.statRow}>
-            <Stat label="This week" value={fmtHours(mine.data?.week || 0)} sub={(mine.data?.week || 0) > 40 ? "Overtime" : `${Math.max(0, 40 - (mine.data?.week || 0)).toFixed(1)} h to 40`} />
+            <Stat label="This week" value={mine.data ? fmtHours(mine.data.week) : "—"} sub={(mine.data?.week || 0) > 40 ? "Overtime" : `${Math.max(0, 40 - (mine.data?.week || 0)).toFixed(1)} h to 40`} />
             <Stat label="Next shift" value={mine.data?.shift ? timeIn(mine.data.shift.starts_at, tz) : "—"}
               sub={mine.data?.shift ? `${new Date(mine.data.shift.starts_at).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", timeZone: tz })} · ${mine.data.shift.position || ""}` : "Nothing scheduled"} />
           </View>
         </Card>
       ) : (
-        <Card title="Time clock"><Text style={styles.muted}>Your sign-in isn't linked to an employee profile, so the time clock is hidden. A manager can link you on the Team page of the portal.</Text></Card>
+        <Card title="Time clock"><Text style={styles.muted}>Your sign-in isn't linked to an employee profile, so the time clock is hidden. A manager can link you on the Team page in {PRODUCT_NAME}.</Text></Card>
       )}
 
       {showKpis && (
@@ -105,7 +110,7 @@ export default function Today() {
   );
 }
 const greeting = () => { const h = new Date().getHours(); return h < 12 ? "Good morning" : h < 17 ? "Good afternoon" : "Good evening"; };
-const fmtHours = (h: number) => `${Math.floor(h)}h ${String(Math.round((h % 1) * 60)).padStart(2, "0")}m`;
+const fmtHours = (h: number) => { const m = Math.round(h * 60); return `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, "0")}m`; };
 const styles = StyleSheet.create({
   hello: { fontSize: 22, fontWeight: "600", color: colors.label },
   big: { fontSize: 34, fontWeight: "700", color: colors.label, fontVariant: ["tabular-nums"] },

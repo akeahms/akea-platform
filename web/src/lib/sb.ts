@@ -59,21 +59,39 @@ function toSession(j: any): Session {
   };
 }
 
+// another tab signed in, refreshed or signed out: follow it (the refresh token rotates, so tabs must share it)
+if (typeof window !== "undefined") window.addEventListener("storage", (e) => {
+  if (e.key !== STORE) return;
+  session = load();
+  listeners.forEach((fn) => fn(session));
+});
+
 let refreshing: Promise<void> | null = null;
-async function ensureFresh() {
-  if (!session) return;
-  if (session.expires_at - Date.now() / 1000 > 90) return;
-  if (!refreshing) {
-    refreshing = (async () => {
-      const res = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=refresh_token`, {
+async function refreshNow() {
+  // one tab at a time (Web Locks): re-read storage inside the lock, since another tab may already have refreshed
+  const run = async () => {
+    const stored = load();
+    if (stored && session && stored.refresh_token !== session.refresh_token && stored.expires_at - Date.now() / 1000 > 90) { session = stored; return; }
+    if (!session) return;
+    let res: Response;
+    try {
+      res = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=refresh_token`, {
         method: "POST",
         headers: { apikey: KEY, "Content-Type": "application/json" },
-        body: JSON.stringify({ refresh_token: session!.refresh_token }),
+        body: JSON.stringify({ refresh_token: session.refresh_token }),
       });
-      if (res.ok) save(toSession(await res.json()));
-      else save(null);
-    })().finally(() => (refreshing = null));
-  }
+    } catch { return; }                                   // offline: keep the session and try again on the next request
+    if (res.ok) save(toSession(await res.json()));
+    else if (res.status === 400 || res.status === 401) save(null);   // the sign-in really ended (revoked or expired)
+    // 429 / 5xx: a temporary problem on the server, so stay signed in
+  };
+  const locks = (typeof navigator !== "undefined" && (navigator as any).locks) || null;
+  if (locks) await locks.request("akea.auth.refresh", run); else await run();
+}
+async function ensureFresh(force = false) {
+  if (!session) return;
+  if (!force && session.expires_at - Date.now() / 1000 > 90) return;
+  if (!refreshing) refreshing = refreshNow().finally(() => (refreshing = null));
   await refreshing;
 }
 
@@ -206,7 +224,7 @@ export const mfa = {
     const res = await fetch(`${SUPABASE_URL}/auth/v1/factors`, {
       method: "POST",
       headers: await headers({ "Content-Type": "application/json" }),
-      body: JSON.stringify({ factor_type: "totp", friendly_name: name, issuer: "Akea Portal" }),
+      body: JSON.stringify({ factor_type: "totp", friendly_name: name, issuer: (typeof document !== "undefined" && document.title) || "Sign-in" }),
     });
     if (!res.ok) throw new Error(await errorText(res));
     const j = await res.json();
@@ -250,7 +268,7 @@ export async function callFunction<T = any>(name: string, body: unknown): Promis
 }
 
 // ---------------- database ----------------
-async function rest<T>(method: string, path: string, body?: unknown, prefer?: string): Promise<T> {
+async function rest<T>(method: string, path: string, body?: unknown, prefer?: string, retried = false): Promise<T> {
   const res = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
     method,
     headers: await headers({
@@ -260,6 +278,8 @@ async function rest<T>(method: string, path: string, body?: unknown, prefer?: st
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   if (res.status === 401) {
+    // the access token may have just expired: refresh once and repeat the request before giving up
+    if (!retried && session) { await ensureFresh(true); if (session) return rest<T>(method, path, body, prefer, true); }
     save(null);
     throw new Error("Your session has ended. Please sign in again.");
   }
@@ -271,6 +291,17 @@ async function rest<T>(method: string, path: string, body?: unknown, prefer?: st
 
 export const db = {
   get: <T = any>(pathAndQuery: string) => rest<T[]>("GET", pathAndQuery),
+  /** Every matching row, 1,000 at a time (a single read stops at 1,000). The query needs a stable order. */
+  async getAll<T = any>(pathAndQuery: string, cap = 50000): Promise<T[]> {
+    const out: T[] = [];
+    const sep = pathAndQuery.includes("?") ? "&" : "?";
+    for (let offset = 0; offset < cap; offset += 1000) {
+      const page = await rest<T[]>("GET", `${pathAndQuery}${sep}limit=1000&offset=${offset}`);
+      out.push(...page);
+      if (page.length < 1000) break;
+    }
+    return out;
+  },
   rpc: <T = any>(fn: string, args: Record<string, unknown>) => rest<T>("POST", `rpc/${fn}`, args),
   insert: <T = any>(table: string, rows: unknown, select = "*") => rest<T[]>("POST", `${table}?select=${select}`, rows, "return=representation"),
   update: <T = any>(table: string, filter: string, patch: unknown, select = "*") =>

@@ -4,7 +4,7 @@ import Constants from "expo-constants";
 import { auth, currentSession } from "@/lib/sb";
 import { useApp } from "@/lib/app";
 import { Screen, Card, Row, Button } from "@/components/ui";
-import { PORTAL_URL } from "@/constants";
+import { PORTAL_URL, PRODUCT_NAME } from "@/constants";
 import { colors } from "@/theme";
 
 export default function Account() {
@@ -18,9 +18,9 @@ export default function Account() {
         <Row title="Company" right={<Text style={styles.v}>{app.brandName}</Text>} />
         <Row title="Hotels" right={<Text style={styles.v}>{app.hotels.length}</Text>} />
       </Card>
-      <Card title="Full portal">
-        <Text style={styles.muted}>Reports, finance, compliance, capital and setup live in the web portal.</Text>
-        <Button kind="secondary" title="Open the web portal" onPress={() => Linking.openURL(PORTAL_URL)} />
+      <Card title={`${PRODUCT_NAME} on the web`}>
+        <Text style={styles.muted}>Reports, finance, compliance, capital and setup live in {PRODUCT_NAME} on the web.</Text>
+        <Button kind="secondary" title={`Open ${PRODUCT_NAME} on the web`} onPress={() => Linking.openURL(PORTAL_URL)} />
       </Card>
       <Button kind="danger" title="Sign out" onPress={() => Alert.alert("Sign out?", undefined, [{ text: "Cancel", style: "cancel" }, { text: "Sign out", style: "destructive", onPress: () => auth.signOut() }])} />
       <Text style={styles.ver}>Version {Constants.expoConfig?.version || "1.0.0"}</Text>

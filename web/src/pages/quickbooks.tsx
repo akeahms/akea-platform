@@ -18,7 +18,9 @@ const BANNER: Record<string, [string, "good" | "bad" | "info"]> = {
 export function QuickBooks({ ctx }: { ctx: Ctx }) {
   const params = new URLSearchParams(window.location.hash.split("?")[1] || "");
   const operating = ctx.hotels.filter((h) => h.status === "operating");
-  const [hotelId, setHotelId] = useState(params.get("hotel") || operating[0]?.id || "");
+  // a hotel id from the link is only used if it's one of this person's hotels (it goes into queries)
+  const linked = params.get("hotel");
+  const [hotelId, setHotelId] = useState(operating.find((h) => h.id === linked)?.id || operating[0]?.id || "");
   const [banner, setBanner] = useState<[string, "good" | "bad" | "info"] | null>(BANNER[params.get("qbo") || ""] || null);
   const canSync = ctx.can("finance", "edit"), canAdmin = ctx.can("finance", "approve");
   const cfg = useAsync(() => callFunction<any>("quickbooks", { action: "config" }).catch(() => ({ configured: false })), []);
@@ -49,7 +51,11 @@ export function QuickBooks({ ctx }: { ctx: Ctx }) {
     setBusy(label); setMsg(null);
     try { await fn(); } catch (e: any) { setMsg({ kind: "bad", text: e.message }); st.reload(); } finally { setBusy(""); }
   }
-  const connect = () => run("connect", async () => { const { url } = await call("connect_url"); window.location.href = url; });
+  const connect = () => run("connect", async () => {
+    const { url } = await call("connect_url");
+    if (new URL(url).hostname !== "appcenter.intuit.com") throw new Error("Unexpected sign-in address from the server.");
+    window.location.href = url;
+  });
   const sync = () => run("sync", async () => {
     const r = await call("sync");
     const parts = [`${r.synced} sent to QuickBooks`, r.needs_mapping ? `${r.needs_mapping} waiting for account mapping` : "", r.failed ? `${r.failed} failed (see the log)` : ""].filter(Boolean);

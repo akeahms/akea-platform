@@ -1,9 +1,12 @@
+import { PRODUCT_NAME } from "@/constants";
 import React from "react";
 import { StyleSheet, Text, View } from "react-native";
 import { db } from "@/lib/sb";
-import { useApp, useLoad, timeIn, hoursBetween } from "@/lib/app";
-import { Screen, Card, Row, Empty, ErrorText, Pill } from "@/components/ui";
+import { useApp, useLoad, timeIn, hoursBetween, dayIn, midnightUtc } from "@/lib/app";
+import { Screen, Card, Row, Empty, ErrorText, Pill, Loading } from "@/components/ui";
 import { colors } from "@/theme";
+
+const addDay = (d: string) => { const x = new Date(d + "T12:00:00Z"); x.setUTCDate(x.getUTCDate() + 1); return x.toISOString().slice(0, 10); };
 
 export default function Schedule() {
   const app = useApp();
@@ -14,8 +17,10 @@ export default function Schedule() {
     const mine = app.employee ? await db.get<any>(`shifts?select=id,starts_at,ends_at,position,break_minutes,published,departments(name,color)&employee_id=eq.${app.employee.id}&published=eq.true&starts_at=gte.${from}&starts_at=lt.${to}&order=starts_at.asc`) : [];
     let team: any[] = [];
     if (isManager) {
-      const start = new Date(); start.setHours(0, 0, 0, 0); const end = new Date(start.getTime() + 864e5);
-      team = await db.get<any>(`shifts?select=id,hotel_id,starts_at,ends_at,position,employees(first_name,last_name),departments(name,color)&starts_at=gte.${start.toISOString()}&starts_at=lt.${end.toISOString()}&order=starts_at.asc&limit=200`);
+      // "today" at the manager's hotel (its own time zone), not the phone's
+      const today = dayIn(tz), start = midnightUtc(today, tz), end = midnightUtc(addDay(today), tz);
+      const hotelFilter = app.employee?.hotel_id ? `&hotel_id=eq.${app.employee.hotel_id}` : "";
+      team = await db.get<any>(`shifts?select=id,hotel_id,starts_at,ends_at,position,employees(first_name,last_name),departments(name,color)${hotelFilter}&starts_at=gte.${start}&starts_at=lt.${end}&order=starts_at.asc&limit=200`);
     }
     return { mine, team };
   }, [app.employee?.id, isManager]);
@@ -29,7 +34,7 @@ export default function Schedule() {
     <Screen refreshing={q.loading && !!q.data} onRefresh={q.refresh}>
       {q.error ? <ErrorText text={q.error} /> : null}
       <Card title="My shifts · next 2 weeks" right={<Pill text={`${total.toFixed(1)} h`} tone="info" />}>
-        {!app.employee ? <Empty title="Not linked to an employee profile" sub="Ask your manager to link your sign-in on the portal's Team page." />
+        {q.loading && !q.data ? <Loading /> : q.error && !q.data ? null : !app.employee ? <Empty title="Not linked to an employee profile" sub={`Ask your manager to link your sign-in on the Team page in ${PRODUCT_NAME}.`} />
           : !byDay.size ? <Empty title="No published shifts yet" sub="Your manager publishes the schedule each week." />
           : [...byDay.entries()].map(([day, shifts]) => (
             <View key={day} style={{ gap: 2 }}>

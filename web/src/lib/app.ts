@@ -5,8 +5,27 @@ export const LEVEL: Record<Level, number> = { none: 0, view: 1, edit: 2, approve
 
 export type Tenant = {
   id: string; name: string; slug: string; brand_name: string | null; logo_url: string | null; accent_color: string | null;
-  subdomain: string | null; custom_domain: string | null; email_sender: string | null; plan: string; hotel_limit: number;
+  subdomain: string | null; custom_domain: string | null; email_sender: string | null; plan: string; hotel_limit: number; report_inbox?: string | null; product_name?: string | null;
 };
+/** The software's name as this company's people see it (white-label): Akea's is "Akea AI Suite"; other companies set their own. */
+export const productName = (t?: Partial<Tenant> | null) => (t?.product_name || t?.brand_name || t?.name || "").trim() || "the app";
+let APP_NAME = "the app";
+/** The current company's software name; "the app" before anyone has signed in. */
+export const appName = () => APP_NAME;
+export const setAppName = (t?: Partial<Tenant> | null) => { APP_NAME = productName(t); };
+/** Public branding for the web address being used (sign-in page, before anyone has signed in). */
+export type Branding = { name?: string; brand_name?: string | null; product_name?: string; logo_url?: string | null; accent_color?: string | null };
+export async function loadBranding(): Promise<Branding | null> {
+  try {
+    const b = await db.rpc<Branding | null>("public_branding", { p_host: location.hostname });
+    if (b) setAppName(b as Partial<Tenant>);
+    return b || null;
+  } catch { return null; }
+}
+/** Only https images (or our own files) are used as a logo. */
+export const safeLogo = (u?: string | null, fallback = "logo.png") => (u && /^https:\/\//i.test(u) ? u : fallback);
+/** Only a #rrggbb colour is used as the accent. */
+export const safeColor = (c?: string | null) => (c && /^#[0-9a-f]{6}$/i.test(c) ? c : null);
 export type Hotel = {
   id: string; tenant_id: string; entity_id: string | null; name: string; brand_family: string | null; address: string | null;
   city: string | null; state: string | null; zip: string | null; rooms: number; str_id: string | null; property_code: string | null;
@@ -34,6 +53,7 @@ export async function loadContext(): Promise<{ membership: Membership | null; ho
   );
   const membership = ms[0] || null;
   if (!membership) return { membership: null, hotels: [] };
+  setAppName(membership.tenants);
   const hotels = await db.get<Hotel>(`hotels?select=*&tenant_id=eq.${membership.tenant_id}&order=status.asc,name.asc`);
   return { membership, hotels };
 }

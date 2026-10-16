@@ -1,3 +1,4 @@
+import { appName } from "./lib/app";
 import React, { useEffect, useState } from "react";
 import { auth, mfa, Factor } from "./lib/sb";
 import { Card, PageHead, Pill, Loading, ErrorBox, Empty } from "./ui";
@@ -81,14 +82,14 @@ export function MfaGate({ required, email, onDone }: { required: boolean; email:
             <details>
               <summary>Can't scan? Enter this key instead</summary>
               <code className="secret">{enroll.secret.replace(/(.{4})/g, "$1 ").trim()}</code>
-              <span className="small muted">In your authenticator app choose "Enter a setup key", name it Akea Portal, and type this key. Then enter the 6-digit number the app shows below.</span>
+              <span className="small muted">In your authenticator app choose "Enter a setup key", name it {appName()}, and type this key. Then enter the 6-digit number the app shows below.</span>
             </details>
           </>
         )}
         {factors && !enroll && (
           <>
             <h2>Enter your sign-in code</h2>
-            <p>Open your authenticator app and enter the 6-digit code for <b>Akea Portal</b> ({email}).</p>
+            <p>Open your authenticator app and enter the 6-digit code for <b>{appName()}</b> ({email}).</p>
           </>
         )}
         {(enroll || (factors && !enroll)) && (

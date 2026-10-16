@@ -55,15 +55,20 @@ Deno.serve(async (req) => {
   const auth = req.headers.get("Authorization") || "";
   const who = await fetch(`${SB_URL}/auth/v1/user`, { headers: { apikey: ANON, Authorization: auth } });
   if (!who.ok) return json({ error: "Please sign in again." }, 401);
-  const { question, history = [], today } = await req.json().catch(() => ({}));
-  if (!question || String(question).length > 2000) return json({ error: "Ask a question (up to 2,000 characters)." }, 400);
+  const body = await req.json().catch(() => ({}));
+  const question = typeof body.question === "string" ? body.question.trim() : "";
+  const history: { role: string; content: string }[] = Array.isArray(body.history)
+    ? body.history.filter((m: any) => m && typeof m.content === "string").slice(-6) : [];
+  const today = typeof body.today === "string" && /^\d{4}-\d{2}-\d{2}$/.test(body.today) ? body.today : new Date().toISOString().slice(0, 10);
+  // everything is checked before the question counts against the daily allowance
+  if (!question || question.length > 2000) return json({ error: "Ask a question (up to 2,000 characters)." }, 400);
   // role permission ("Ask AI" in Users & Permissions) + daily cap per person, checked before any AI call
   try { await rest(auth, "rpc/ai_quota_take", { method: "POST", body: "{}" }); }
   catch (e) { const m = String((e as Error).message); const msg = m.match(/"message":"([^"]+)"/)?.[1]; return json({ error: msg || "Ask AI isn't available right now." }, msg?.includes("turned on") ? 403 : 429); }
   const key = env("ANTHROPIC_API_KEY");
   if (!key) return json({ configured: false, answer: "Ask AI isn't switched on yet. An administrator needs to add an Anthropic API key in Supabase → Edge Functions → Secrets (name: ANTHROPIC_API_KEY)." });
 
-  const system = `You answer questions about a hotel management company's own data for a signed-in user. Today is ${today || new Date().toISOString().slice(0, 10)} (US Central time).
+  const system = `You answer questions about a hotel management company's own data for a signed-in user. Today is ${today} (US Central time).
 Use the tools to look data up; never guess numbers. The data you can read is already limited to what this user is allowed to see — if something comes back empty, say you don't see it rather than speculating.
 Hotel KPIs: Occupancy = rooms_sold / rooms_available. ADR = room_revenue / rooms_sold. RevPAR = room_revenue / rooms_available. TRevPAR = (room+fnb+other revenue) / rooms_available. Same-day last year = 364 days earlier.
 Rows with data_source = 'sample' are demonstration data — mention that when your answer relies on them.
@@ -78,10 +83,11 @@ Always look up hotel ids by name in the hotels table first when the user names a
     { name: "call_function", description: "Call a reporting function with JSON arguments.",
       input_schema: { type: "object", properties: { name: { type: "string", enum: Object.keys(RPCS) }, args: { type: "object" } }, required: ["name", "args"] } },
   ];
-  const messages: any[] = [...(history as any[]).slice(-6).map((m: any) => ({ role: m.role === "assistant" ? "assistant" : "user", content: String(m.content).slice(0, 4000) })), { role: "user", content: String(question) }];
+  const messages: any[] = [...history.map((m) => ({ role: m.role === "assistant" ? "assistant" : "user", content: m.content.slice(0, 4000) })), { role: "user", content: question }];
   const steps: { tool: string; detail: string; rows: number }[] = [];
   try {
-    for (let i = 0; i < 8; i++) {
+    for (let i = 0; i < 5; i++) {
+      if (JSON.stringify(messages).length > 150_000) break;   // keeps each question's cost bounded
       const r = await fetch("https://api.anthropic.com/v1/messages", {
         method: "POST",
         headers: { "x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json" },
@@ -92,7 +98,9 @@ Always look up hotel ids by name in the hotels table first when the user names a
       messages.push({ role: "assistant", content: j.content });
       const uses = (j.content || []).filter((c: any) => c.type === "tool_use");
       if (j.stop_reason !== "tool_use" || !uses.length) {
-        const answer = (j.content || []).filter((c: any) => c.type === "text").map((c: any) => c.text).join("\n").trim();
+        // no images or links in answers: data the model read could try to smuggle them in
+        const answer = (j.content || []).filter((c: any) => c.type === "text").map((c: any) => c.text).join("\n").trim()
+          .replace(/!\[[^\]]*\]\([^)]*\)/g, "").replace(/\[([^\]]+)\]\((?:https?:|data:|javascript:)[^)]*\)/gi, "$1").replace(/<img[^>]*>/gi, "");
         return json({ configured: true, answer, steps });
       }
       const results = [];
@@ -102,6 +110,10 @@ Always look up hotel ids by name in the hotels table first when the user names a
           if (u.name === "query_table") {
             const { table, select, filters = "", limit = 200 } = u.input;
             if (!TABLES[table]) throw new Error("Unknown table");
+            // plain columns or simple aggregates only: no embedded tables (which could reach columns outside the list)
+            const cols = String(select).split(",").map((x) => x.trim());
+            if (!cols.length || cols.some((c) => !/^(\*|count\(\)|[a-z_][a-z0-9_]*(\.(sum|avg|min|max|count)\(\))?)$/i.test(c))) throw new Error("Use plain column names or sums like amount.sum()");
+            if (/[()]/.test(String(filters).replace(/\b(in|or|and|not\.in)=?\.?\(/gi, ""))) throw new Error("Unsupported filter");
             const f = String(filters).replace(/^[?&]+/, "").replace(/(^|&)(select|limit)=[^&]*/g, "");
             out = await rest(auth, `${table}?select=${encodeURIComponent(select)}${f ? "&" + f : ""}&limit=${Math.min(500, Number(limit) || 200)}`);
             steps.push({ tool: table, detail: f, rows: Array.isArray(out) ? out.length : 0 });
@@ -113,12 +125,13 @@ Always look up hotel ids by name in the hotels table first when the user names a
           }
         } catch (e) { out = { error: (e as Error).message }; }
         const s = JSON.stringify(out);
-        results.push({ type: "tool_result", tool_use_id: u.id, content: s.length > 60000 ? s.slice(0, 60000) + "…(truncated)" : s });
+        results.push({ type: "tool_result", tool_use_id: u.id, content: s.length > 15000 ? s.slice(0, 15000) + "…(truncated; narrow the query)" : s });
       }
       messages.push({ role: "user", content: results });
     }
     return json({ configured: true, answer: "That question needed more lookups than I can do at once. Try narrowing it to a hotel or a date range.", steps });
   } catch (e) {
-    return json({ error: (e as Error).message }, 500);
+    console.error("ask-ai:", (e as Error).message);
+    return json({ error: "Ask AI couldn't answer that just now. Try again in a moment." }, 500);
   }
 });

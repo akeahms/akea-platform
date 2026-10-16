@@ -42,26 +42,37 @@ async function runSync(c: Conn) {
   }
 }
 
+/** Mappings and the sync log belong to one QuickBooks company; clear them when the hotel leaves it. */
+async function forgetCompany(hotelId: string) {
+  for (const t of ["qbo_account_map", "qbo_vendor_map", "qbo_sync_log", "qbo_accounts"]) await admin.from(t).delete().eq("hotel_id", hotelId);
+}
+
 // ------------------------------------------------------------------ Intuit redirect after sign-in
 async function onCallback(url: URL) {
   const state = url.searchParams.get("state") || "";
-  const { data: st } = await admin.from("qbo_oauth_states").select("*").eq("state", state).maybeSingle();
-  if (state) await admin.from("qbo_oauth_states").delete().eq("state", state);
+  // take the state once (delete-and-return), so a sign-in link can't be replayed
+  const { data: taken } = state ? await admin.from("qbo_oauth_states").delete().eq("state", state).select("*") : { data: null };
+  const st = taken?.[0];
   if (!st || Date.now() - Date.parse(st.created_at) > 15 * 60 * 1000) return back("expired");
   if (url.searchParams.get("error")) return back("cancelled", st.hotel_id);
   const code = url.searchParams.get("code"), realm = url.searchParams.get("realmId");
-  if (!code || !realm) return back("failed", st.hotel_id);
+  if (!code || !realm || !/^\d{1,20}$/.test(realm)) return back("failed", st.hotel_id);
   try {
     const { data: hotel } = await admin.from("hotels").select("id,tenant_id").eq("id", st.hotel_id).single();
     const old = await getConn(st.hotel_id);
     const t = await exchangeCode(code, REDIRECT);
     if (old && old.realm_id !== realm) await revoke(old.refresh_token);
+    // a different QuickBooks company than last time: the old company's account/vendor ids and "already sent" log don't apply
+    const { data: prev } = await admin.from("qbo_settings").select("realm_id").eq("hotel_id", hotel.id).maybeSingle();
+    const lastRealm = old?.realm_id || prev?.realm_id;
+    if (lastRealm && lastRealm !== realm) await forgetCompany(hotel.id);
     const c: Conn = { hotel_id: hotel.id, tenant_id: hotel.tenant_id, realm_id: realm, company_name: null, status: "active", ...t };
     const { error } = await admin.from("qbo_connections").upsert({ ...c, last_error: null, connected_by: st.user_id, updated_at: new Date().toISOString() });
     if (error) throw new Error(error.message);
     const info = await qbo(admin, c, "GET", `companyinfo/${realm}`).catch(() => null);
     await admin.from("qbo_connections").update({ company_name: info?.CompanyInfo?.CompanyName || null }).eq("hotel_id", hotel.id);
     await admin.from("qbo_settings").upsert({ hotel_id: hotel.id, tenant_id: hotel.tenant_id }, { onConflict: "hotel_id", ignoreDuplicates: true });
+    await admin.from("qbo_settings").update({ realm_id: realm }).eq("hotel_id", hotel.id);
     await pullAccounts(admin, c);
     await admin.from("audit_log").insert({ tenant_id: hotel.tenant_id, user_id: st.user_id, action: "connect", object_type: "quickbooks", object_id: hotel.id, detail: { realm } });
     return back("connected", hotel.id);
@@ -120,7 +131,7 @@ async function onPortal(req: Request) {
   if (action === "disconnect") {
     await revoke(c.refresh_token);
     await admin.from("qbo_connections").delete().eq("hotel_id", hotel.id);
-    await admin.from("qbo_accounts").delete().eq("hotel_id", hotel.id);
+    await admin.from("qbo_accounts").delete().eq("hotel_id", hotel.id);   // mapping and log are kept for reconnecting to the same company
     await admin.from("audit_log").insert({ tenant_id: hotel.tenant_id, user_id: u.user.id, action: "disconnect", object_type: "quickbooks", object_id: hotel.id, detail: { realm: c.realm_id } });
     return json({ ok: true });
   }
@@ -149,6 +160,8 @@ Deno.serve(async (req) => {
     return await onPortal(req);
   } catch (e) {
     const q = e as QboError;
-    return json({ error: q.message, relogin: !!q.relogin }, q.relogin ? 409 : 400);
+    console.error("quickbooks:", q.message);
+    // QuickBooks' own messages are useful to the user; database errors are not shown
+    return json({ error: q instanceof QboError ? q.message : "Something went wrong talking to QuickBooks. Try again, or check the sync log.", relogin: !!q.relogin }, q.relogin ? 409 : 400);
   }
 });

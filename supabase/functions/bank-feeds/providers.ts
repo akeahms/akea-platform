@@ -51,9 +51,9 @@ export function normPlaid(t: any): Row | null {
   };
 }
 
-export async function plaidLinkToken(userId: string, webhook: string, accessToken?: string | null) {
+export async function plaidLinkToken(userId: string, webhook: string, accessToken?: string | null, clientName = "Hotel operations") {
   const body: Record<string, unknown> = {
-    client_name: "Hotel Portal", user: { client_user_id: userId }, country_codes: ["US"], language: "en", webhook,
+    client_name: clientName.slice(0, 30), user: { client_user_id: userId }, country_codes: ["US"], language: "en", webhook,
   };
   if (accessToken) body.access_token = accessToken;            // update mode: re-enter the bank login
   else {

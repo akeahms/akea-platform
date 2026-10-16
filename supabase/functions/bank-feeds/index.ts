@@ -124,7 +124,9 @@ async function onPortal(req: Request) {
   if (action === "plaid_link_token") {
     if (!plaidOn()) return json({ error: "Plaid isn't switched on. Add PLAID_CLIENT_ID and PLAID_SECRET in Supabase secrets." }, 400);
     const relink = !!body.relink && conn?.provider === "plaid" && conn.access_token;
-    return json({ link_token: await plaidLinkToken(u.user.id, plaidHookUrl(), relink ? conn!.access_token : null), relink: !!relink });
+    const { data: tn } = await admin.from("tenants").select("product_name,brand_name,name").eq("id", acct.tenant_id).maybeSingle();
+    const shown = tn?.product_name || tn?.brand_name || tn?.name || "Hotel operations";   // the name people see in the bank sign-in window
+    return json({ link_token: await plaidLinkToken(u.user.id, plaidHookUrl(), relink ? conn!.access_token : null, shown), relink: !!relink });
   }
 
   if (action === "plaid_exchange") {
@@ -134,8 +136,9 @@ async function onPortal(req: Request) {
       const r = await syncConnection(admin, { ...conn, status: "active" });
       return json({ ok: true, ...r });
     }
-    if (conn) await disconnect(conn);                                 // replacing an older connection
+    // exchange first; only once the new link works is the older one removed (a failure leaves the old link in place)
     const ex = await plaid("/item/public_token/exchange", { public_token: body.public_token });
+    if (conn) await disconnect(conn).catch((e) => console.error("bank-feeds: old link not removed:", (e as Error).message));
     const c: Conn = { bank_account_id: acct.id, tenant_id: acct.tenant_id, provider: "plaid", status: "active", item_id: ex.item_id, access_token: ex.access_token,
       external_account_id: null, customer_id: null, cursor: null, institution: body.institution || null, last_synced_at: null };
     const accts = await listAccounts(c);
@@ -210,6 +213,8 @@ Deno.serve(async (req) => {
     return await onPortal(req);
   } catch (e) {
     const pe = e as ProviderError;
-    return json({ error: pe.message, code: pe.code || null, relogin: !!pe.relogin }, pe.relogin ? 409 : 400);
+    console.error("bank-feeds:", pe.message);
+    // the bank provider's own messages help the user; anything else (database etc.) stays in the logs
+    return json({ error: pe instanceof ProviderError ? pe.message : "Something went wrong with the bank connection. Try again.", code: pe.code || null, relogin: !!pe.relogin }, pe.relogin ? 409 : 400);
   }
 });

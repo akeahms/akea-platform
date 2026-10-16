@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { db, currentSession } from "../lib/sb";
-import { Ctx, Hotel, Level } from "../lib/app";
+import { Ctx, Hotel, Level, appName } from "../lib/app";
 import { PageHead, Card, Loading, ErrorBox, Empty, useAsync, Notice, Pill, downloadFile, toCsv } from "../ui";
 
 // ======================= Hotels =======================
@@ -28,7 +28,7 @@ export function Hotels({ ctx }: { ctx: Ctx }) {
       const { default: JSZip } = await import("jszip");
       const zip = new JSZip();
       for (const [name, csv] of Object.entries(files)) zip.file(`${name}.csv`, csv);
-      zip.file("README.txt", `${h.name} — complete data export from the Akea portal, ${new Date().toISOString().slice(0, 10)}.\r\nOne CSV file per kind of record, this hotel only. Files are empty where the hotel has no records or your role can't see them (for example pay rates).\r\n`);
+      zip.file("README.txt", `${h.name} — complete data export from ${appName()}, ${new Date().toISOString().slice(0, 10)}.\r\nOne CSV file per kind of record, this hotel only. Files are empty where the hotel has no records or your role can't see them (for example pay rates).\r\n`);
       const blob = await zip.generateAsync({ type: "uint8array" });
       downloadFile(`${h.name.replace(/[^\w\- ]+/g, "")} data ${new Date().toISOString().slice(0, 10)}.zip`, blob as unknown as BlobPart, "application/zip");
       setExportMsg({ kind: "good", text: `Exported ${rows.toLocaleString()} records from ${h.name} in ${Object.keys(files).length} files.` });
@@ -108,7 +108,7 @@ export function Users({ ctx }: { ctx: Ctx }) {
     setMsg(null);
     try {
       await db.insert("invites", { tenant_id: ctx.tenant.id, email: form.email.trim().toLowerCase(), role_key: form.role_key, all_hotels: form.all, hotel_ids: form.all ? [] : form.hotels, invited_by: currentSession()?.user.id });
-      setMsg({ kind: "info", text: `Invite saved. When ${form.email} creates an account on this portal with that email, their access is applied automatically.` });
+      setMsg({ kind: "info", text: `Invite saved. When ${form.email} creates an ${appName()} account with that email, their access is applied automatically.` });
       setForm({ ...form, email: "", hotels: [] });
       q.reload();
     } catch (err: any) { setMsg({ kind: "bad", text: err.message }); }
@@ -185,6 +185,7 @@ const MODULES: { key: string; label: string; desc: string; levels: Level[] }[] =
   { key: "reports", label: "Reports", desc: "Report inbox, nightly snapshot email", levels: ["none", "view", "edit", "admin"] },
   { key: "str", label: "STR market data", desc: "Competitive set index", levels: ["none", "view"] },
   { key: "ask_ai", label: "Ask AI", desc: "Plain-English questions about your data. Each question is billed by Anthropic (a few cents).", levels: ["none", "view"] },
+  { key: "platform_costs", label: "Platform costs", desc: "What the software costs to build and run (hosting, database, AI, bank feeds, app stores) and its invoices.", levels: ["none", "view", "edit", "admin"] },
   { key: "finance", label: "Finance", desc: "Bills, banking, accounting, budgets. Approve = approve bills up to the role's limit", levels: ["none", "view", "edit", "approve", "admin"] },
   { key: "purchasing", label: "Purchasing", desc: "Purchase orders", levels: ["none", "view", "edit", "approve"] },
   { key: "workforce", label: "Workforce", desc: "Schedule, time clock, timesheets. Approve = see pay rates and approve hours", levels: ["none", "view", "edit", "approve", "admin"] },

@@ -1,6 +1,6 @@
 import React, { useMemo, useRef, useState } from "react";
 import { db, storage, callFunction } from "../lib/sb";
-import { Ctx, usd, fmtDate, todayIn, addDays, periodRange, Period, yesterday, pct } from "../lib/app";
+import { Ctx, usd, fmtDate, todayIn, addDays, periodRange, Period, yesterday, pct, appName } from "../lib/app";
 import { PageHead, Card, Pill, Loading, ErrorBox, Empty, useAsync, Modal, Field, HotelSelect, Notice, SampleBadge, Seg, Tabs, downloadFile, toCsv, Kpi } from "../ui";
 import { readBankStatement, documentText, BankParse, parseCsv } from "../lib/parse";
 import { extractInvoice } from "../lib/extract";
@@ -23,8 +23,8 @@ const sanitize = (n: string) => n.replace(/[^\w.\- ]+/g, "_");
 function useLookups(ctx: Ctx) {
   return useAsync(async () => {
     const [gl, vendors] = await Promise.all([
-      db.get<Gl>(`gl_accounts?select=id,hotel_id,number,name,full_name,type,section,active,parent_id,qbo_type,detail_type,system_key,template_id&tenant_id=eq.${ctx.tenant.id}&order=number.asc`),
-      db.get<Vendor>(`vendors?select=*&tenant_id=eq.${ctx.tenant.id}&order=name.asc`),
+      db.getAll<Gl>(`gl_accounts?select=id,hotel_id,number,name,full_name,type,section,active,parent_id,qbo_type,detail_type,system_key,template_id&tenant_id=eq.${ctx.tenant.id}&order=number.asc,id.asc`),
+      db.getAll<Vendor>(`vendors?select=*&tenant_id=eq.${ctx.tenant.id}&order=name.asc,id.asc`),
     ]);
     return { gl, vendors };
   }, [ctx.tenant.id]);
@@ -34,7 +34,7 @@ const glLabel = (g?: Gl) => (g ? `${g.number} · ${g.full_name || g.name}${g.act
 const glOf = (gl: Gl[] | undefined, hotelId: string | null | undefined) => (gl || []).filter((g) => (hotelId ? g.hotel_id === hotelId : !g.hotel_id));
 /** Accounts that can be picked for new entries: active ones (plus the one already chosen, so an old record still shows its account). */
 const glPick = (gl: Gl[] | undefined, hotelId: string | null | undefined, current?: string | null) =>
-  glOf(gl, hotelId).filter((g) => g.active || g.id === current).sort((a, b) => a.full_name.localeCompare(b.full_name));
+  glOf(gl, hotelId).filter((g) => g.active || g.id === current).sort((a, b) => (a.full_name || a.name).localeCompare(b.full_name || b.name));
 /** The hotel's own account matching an id (a template default such as a vendor's default account maps through the template link or the name). */
 const ownGl = (gl: Gl[] | undefined, id: string | null | undefined, hotelId: string) => {
   const g = (gl || []).find((x) => x.id === id);
@@ -62,7 +62,7 @@ export function Bills({ ctx }: { ctx: Ctx }) {
   const [deciding, setDeciding] = useState<{ bill: Bill; approve: boolean } | null>(null);
   const statusFilter = { approve: "status=eq.pending_approval", pay: "status=eq.approved", scheduled: "status=eq.scheduled", paid: "status=eq.paid", draft: "status=in.(draft,rejected)", all: "" }[tab];
   const q = useAsync(() => db.get<Bill>(`bills?select=*&tenant_id=eq.${ctx.tenant.id}${hotelId ? `&hotel_id=eq.${hotelId}` : ""}${statusFilter ? "&" + statusFilter : ""}&order=due_date.asc.nullslast&limit=300`), [hotelId, tab]);
-  const counts = useAsync(() => db.get<any>(`bills?select=status,amount&tenant_id=eq.${ctx.tenant.id}${hotelId ? `&hotel_id=eq.${hotelId}` : ""}&status=in.(pending_approval,approved,scheduled)`), [hotelId, q.data]);
+  const counts = useAsync(() => db.getAll<any>(`bills?select=id,status,amount&tenant_id=eq.${ctx.tenant.id}${hotelId ? `&hotel_id=eq.${hotelId}` : ""}&status=in.(pending_approval,approved,scheduled)&order=id.asc`), [hotelId, q.data]);
   const vName = (id: string | null) => lk.data?.vendors.find((v) => v.id === id)?.name || "—";
   const hName = (id: string) => ctx.hotels.find((h) => h.id === id)?.name || "";
   const today = todayIn();
@@ -268,7 +268,9 @@ function PayModal({ ctx, bills, onClose }: { ctx: Ctx; bills: Bill[]; onClose: (
 export function Vendors({ ctx }: { ctx: Ctx }) {
   const canEdit = ctx.can("finance", "edit");
   const lk = useLookups(ctx);
-  const spend = useAsync(() => db.get<any>(`bills?select=vendor_id,amount,status,invoice_date&tenant_id=eq.${ctx.tenant.id}&invoice_date=gte.${todayIn().slice(0, 4)}-01-01&status=in.(approved,scheduled,paid)`), [ctx.tenant.id]);
+  // 1099s count what was actually paid in the calendar year (by payment date), not what was billed
+  const yr = todayIn().slice(0, 4);
+  const spend = useAsync(() => db.getAll<any>(`bills?select=id,vendor_id,amount,status,paid_at&tenant_id=eq.${ctx.tenant.id}&status=eq.paid&paid_at=gte.${yr}-01-01&paid_at=lte.${yr}-12-31&order=id.asc`), [ctx.tenant.id]);
   const [edit, setEdit] = useState<Partial<Vendor> | null>(null);
   const [search, setSearch] = useState("");
   const [msg, setMsg] = useState<{ kind: "good" | "bad"; text: string } | null>(null);
@@ -457,7 +459,7 @@ export function Banking({ ctx }: { ctx: Ctx }) {
   const accts = useAsync(async () => {
     const [a, un] = await Promise.all([
       db.get<BankAcct>(`bank_accounts?select=*&tenant_id=eq.${ctx.tenant.id}&order=name.asc`),
-      db.get<any>(`bank_transactions?select=bank_account_id&tenant_id=eq.${ctx.tenant.id}&status=eq.unmatched`),
+      db.getAll<any>(`bank_transactions?select=id,bank_account_id&tenant_id=eq.${ctx.tenant.id}&status=eq.unmatched&order=id.asc`),
     ]);
     return { a, un };
   }, [ctx.tenant.id]);
@@ -633,7 +635,7 @@ export function Banking({ ctx }: { ctx: Ctx }) {
             <Field label="Account number · last 4" id="baL"><input id="baL" maxLength={4} inputMode="numeric" value={addAcct.last4} onChange={(e) => setAddAcct({ ...addAcct, last4: e.target.value.replace(/\D/g, "") })} /></Field>
             <Field label="Type" id="baK"><select id="baK" value={addAcct.kind} onChange={(e) => setAddAcct({ ...addAcct, kind: e.target.value })}><option value="operating">Operating</option><option value="payroll">Payroll</option><option value="reserve">Reserve (FF&E)</option><option value="tax">Tax</option><option value="other">Other</option></select></Field>
           </div>
-          <p className="small muted">Only the last 4 digits are stored. Full account and routing numbers never go into the portal.</p>
+          <p className="small muted">Only the last 4 digits are stored. Full account and routing numbers never go into {appName()}.</p>
         </Modal>
       )}
     </>
@@ -827,19 +829,23 @@ function Journal({ ctx }: { ctx: Ctx }) {
   const [form, setForm] = useState<any | null>(null);
   const [msg, setMsg] = useState<{ kind: "good" | "bad"; text: string } | null>(null);
   const glName = (id: string) => glLabel(lk.data?.gl.find((g) => g.id === id));
+  const [posting, setPosting] = useState(false);
   async function post() {
+    if (posting) return;
+    setPosting(true);
     try {
       const lines = form.lines.filter((l: any) => l.account_id && (Number(l.debit) || Number(l.credit))).map((l: any) => ({ account_id: l.account_id, debit: Number(l.debit || 0), credit: Number(l.credit || 0), memo: l.memo || null }));
-      await db.rpc("post_journal", { p_hotel: hotelId, p_date: form.date, p_memo: form.memo, p_lines: lines, p_source: "manual", p_source_id: null });
+      // the draft's own id makes a repeat click return the same entry instead of posting it twice
+      await db.rpc("post_journal", { p_hotel: hotelId, p_date: form.date, p_memo: form.memo, p_lines: lines, p_source: "manual", p_source_id: form.key });
       setForm(null); setMsg({ kind: "good", text: "Entry posted." }); q.reload();
-    } catch (e: any) { setMsg({ kind: "bad", text: e.message }); }
+    } catch (e: any) { setMsg({ kind: "bad", text: e.message }); } finally { setPosting(false); }
   }
   const dr = form ? form.lines.reduce((a: number, l: any) => a + Number(l.debit || 0), 0) : 0;
   const cr = form ? form.lines.reduce((a: number, l: any) => a + Number(l.credit || 0), 0) : 0;
   return (
     <>
       <div className="toolbar"><HotelSelect hotels={operating} value={hotelId} onChange={setHotelId} /><span className="grow" />
-        {canEdit && <button className="btn pri" onClick={() => setForm({ date: todayIn(), memo: "", lines: [{ account_id: "", debit: "", credit: "" }, { account_id: "", debit: "", credit: "" }] })}>New journal entry</button>}</div>
+        {canEdit && <button className="btn pri" onClick={() => setForm({ key: crypto.randomUUID(), date: todayIn(), memo: "", lines: [{ account_id: "", debit: "", credit: "" }, { account_id: "", debit: "", credit: "" }] })}>New journal entry</button>}</div>
       {msg && <Notice kind={msg.kind} onClose={() => setMsg(null)}>{msg.text}</Notice>}
       {q.loading && !q.data && <Loading />}
       {q.data && lk.data && (
@@ -860,7 +866,7 @@ function Journal({ ctx }: { ctx: Ctx }) {
       {form && lk.data && (
         <Modal title="New journal entry" onClose={() => setForm(null)} wide
           footer={<><span className={"small " + (Math.abs(dr - cr) < 0.005 && dr > 0 ? "up" : "dn")} style={{ marginRight: "auto" }}>Debits {usd(dr, 2)} · Credits {usd(cr, 2)}{Math.abs(dr - cr) >= 0.005 ? " · out of balance" : ""}</span>
-            <button className="btn" onClick={() => setForm(null)}>Cancel</button><button className="btn pri" disabled={Math.abs(dr - cr) >= 0.005 || !dr} onClick={post}>Post entry</button></>}>
+            <button className="btn" onClick={() => setForm(null)}>Cancel</button><button className="btn pri" disabled={posting || Math.abs(dr - cr) >= 0.005 || !dr} onClick={post}>{posting ? "Posting…" : "Post entry"}</button></>}>
           <div className="fgrid">
             <Field label="Date" id="jD"><input id="jD" type="date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} /></Field>
             <Field label="Memo" id="jM"><input id="jM" value={form.memo} onChange={(e) => setForm({ ...form, memo: e.target.value })} /></Field>

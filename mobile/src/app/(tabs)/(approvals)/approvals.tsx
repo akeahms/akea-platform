@@ -1,4 +1,5 @@
-import React, { useState } from "react";
+import { PRODUCT_NAME } from "@/constants";
+import React, { useRef, useState } from "react";
 import { Alert, StyleSheet, Text, View } from "react-native";
 import * as Haptics from "expo-haptics";
 import { db } from "@/lib/sb";
@@ -10,6 +11,7 @@ export default function Approvals() {
   const app = useApp();
   const bills = app.can("finance", "approve"), pos = app.can("purchasing", "approve"), punches = app.can("workforce", "approve");
   const [busy, setBusy] = useState<string>("");
+  const busyRef = useRef(false);
   const q = useLoad(async () => {
     const since = new Date(Date.now() - 14 * 864e5).toISOString();
     const [b, p, t] = await Promise.all([
@@ -25,10 +27,11 @@ export default function Approvals() {
     Alert.alert(title, msg, [{ text: "Cancel", style: "cancel" }, {
       text: destructive ? "Reject" : "Approve", style: destructive ? "destructive" : "default",
       onPress: async () => {
-        setBusy(key);
+        if (busyRef.current) return;
+        busyRef.current = true; setBusy(key);
         try { await run(); Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {}); await q.refresh(); }
         catch (e: any) { Alert.alert("Couldn't save", e.message); }
-        finally { setBusy(""); }
+        finally { busyRef.current = false; setBusy(""); }
       },
     }]);
   }
@@ -50,8 +53,8 @@ export default function Approvals() {
               <Row title={b.vendors?.name || "Vendor"} subtitle={[hotel(b.hotel_id), b.invoice_no && `#${b.invoice_no}`, b.due_date && `due ${new Date(b.due_date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}`, b.description].filter(Boolean).join(" · ")}
                 right={<Text style={styles.money}>{usd(Number(b.amount), 2)}</Text>} />
               <View style={styles.actions}>
-                <View style={{ flex: 1 }}><Button kind="secondary" title="Reject" busy={busy === "rb" + b.id} onPress={() => confirm("Reject bill?", `${b.vendors?.name || "Bill"} · ${usd(Number(b.amount), 2)}`, () => db.rpc("decide_bill", { p_id: b.id, p_approve: false, p_note: "Rejected on mobile" }), "rb" + b.id, true)} /></View>
-                <View style={{ flex: 1 }}><Button title="Approve" busy={busy === "ab" + b.id} onPress={() => confirm("Approve bill?", `${b.vendors?.name || "Bill"} · ${usd(Number(b.amount), 2)}`, () => db.rpc("decide_bill", { p_id: b.id, p_approve: true, p_note: null }), "ab" + b.id)} /></View>
+                <View style={{ flex: 1 }}><Button kind="secondary" title="Reject" busy={busy === "rb" + b.id} disabled={!!busy && busy !== "rb" + b.id} onPress={() => confirm("Reject bill?", `${b.vendors?.name || "Bill"} · ${usd(Number(b.amount), 2)}`, () => db.rpc("decide_bill", { p_id: b.id, p_approve: false, p_note: "Rejected on mobile" }), "rb" + b.id, true)} /></View>
+                <View style={{ flex: 1 }}><Button title="Approve" busy={busy === "ab" + b.id} disabled={!!busy && busy !== "ab" + b.id} onPress={() => confirm("Approve bill?", `${b.vendors?.name || "Bill"} · ${usd(Number(b.amount), 2)}`, () => db.rpc("decide_bill", { p_id: b.id, p_approve: true, p_note: null }), "ab" + b.id)} /></View>
               </View>
             </View>
           ))}
@@ -65,8 +68,8 @@ export default function Approvals() {
               <Row title={`${p.po_no} · ${p.vendors?.name || "Vendor"}`} subtitle={[hotel(p.hotel_id), p.needed_by && `needed ${new Date(p.needed_by + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}`, p.notes].filter(Boolean).join(" · ")}
                 right={<Text style={styles.money}>{usd(Number(p.total), 2)}</Text>} />
               <View style={styles.actions}>
-                <View style={{ flex: 1 }}><Button kind="secondary" title="Reject" busy={busy === "rp" + p.id} onPress={() => confirm("Reject purchase order?", `${p.po_no} · ${usd(Number(p.total), 2)}`, () => db.rpc("decide_po", { p_id: p.id, p_approve: false, p_note: "Rejected on mobile" }), "rp" + p.id, true)} /></View>
-                <View style={{ flex: 1 }}><Button title="Approve" busy={busy === "ap" + p.id} onPress={() => confirm("Approve purchase order?", `${p.po_no} · ${usd(Number(p.total), 2)}`, () => db.rpc("decide_po", { p_id: p.id, p_approve: true, p_note: null }), "ap" + p.id)} /></View>
+                <View style={{ flex: 1 }}><Button kind="secondary" title="Reject" busy={busy === "rp" + p.id} disabled={!!busy && busy !== "rp" + p.id} onPress={() => confirm("Reject purchase order?", `${p.po_no} · ${usd(Number(p.total), 2)}`, () => db.rpc("decide_po", { p_id: p.id, p_approve: false, p_note: "Rejected on mobile" }), "rp" + p.id, true)} /></View>
+                <View style={{ flex: 1 }}><Button title="Approve" busy={busy === "ap" + p.id} disabled={!!busy && busy !== "ap" + p.id} onPress={() => confirm("Approve purchase order?", `${p.po_no} · ${usd(Number(p.total), 2)}`, () => db.rpc("decide_po", { p_id: p.id, p_approve: true, p_note: null }), "ap" + p.id)} /></View>
               </View>
             </View>
           ))}
@@ -81,9 +84,9 @@ export default function Approvals() {
               subtitle={`${dateLabel(x.clock_in, tz)} · ${timeIn(x.clock_in, tz)} – ${timeIn(x.clock_out, tz)} · ${hotel(x.hotel_id)}`}
               right={<Text style={styles.money}>{hoursBetween(x.clock_in, x.clock_out, x.break_minutes).toFixed(2)} h</Text>} />;
           })}
-          {t.length > 30 ? <Text style={styles.more}>+ {t.length - 30} more</Text> : null}
-          <Button title={`Approve all ${t.length} punches`} busy={busy === "punches"}
-            onPress={() => confirm("Approve timesheets?", `${t.length} completed punches, ${hrs.toFixed(1)} hours. Review edits on the portal first if anything looks off.`, () => db.rpc("approve_punches", { p_ids: t.map((x: any) => x.id) }), "punches")} />
+          {t.length > 30 ? <Text style={styles.more}>+ {t.length - 30} more{t.length >= 200 ? " (showing the oldest 200; approve these, then pull to refresh for the rest)" : ""}</Text> : null}
+          <Button title={`Approve all ${t.length} punches`} busy={busy === "punches"} disabled={!!busy && busy !== "punches"}
+            onPress={() => confirm("Approve timesheets?", `${t.length} completed punches, ${hrs.toFixed(1)} hours. Review edits in ${PRODUCT_NAME} on the web first if anything looks off.`, () => db.rpc("approve_punches", { p_ids: t.map((x: any) => x.id) }), "punches")} />
         </Card>
       )}
     </Screen>

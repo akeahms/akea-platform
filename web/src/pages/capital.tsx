@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from "react";
 import { db, storage, currentSession } from "../lib/sb";
-import { Ctx, usd, usdShort, pct, fmtDate, todayIn, addDays, yesterday, summary, kpi, periodRange, Period } from "../lib/app";
+import { Ctx, usd, usdShort, pct, fmtDate, todayIn, addDays, yesterday, summary, kpi, periodRange, Period, appName } from "../lib/app";
 import { PageHead, Card, Pill, Loading, ErrorBox, Empty, useAsync, Modal, Field, HotelSelect, Notice, SampleBadge, Seg, Kpi, downloadFile, toCsv, Tabs, LineChart } from "../ui";
 import { uploadDoc, openDoc, FOLDERS } from "./compliance";
 import { buildPdf, money, Block } from "../lib/pdfdoc";
@@ -35,7 +35,7 @@ export function Investors({ ctx }: { ctx: Ctx }) {
       let user_id = form.user_id || null;
       if (form.login_email) {
         const p = await db.get<any>(`profiles?select=user_id&email=eq.${encodeURIComponent(form.login_email.trim().toLowerCase())}`);
-        if (!p.length) throw new Error(`No portal account uses ${form.login_email} yet. Invite them as "Investor / Owner" on Users & Permissions first.`);
+        if (!p.length) throw new Error(`No ${appName()} account uses ${form.login_email} yet. Invite them as "Investor / Owner" on Users & Permissions first.`);
         user_id = p[0].user_id;
       }
       const row = { name: form.name, email: form.email || null, phone: form.phone || null, notes: form.notes || null, user_id };
@@ -69,7 +69,7 @@ export function Investors({ ctx }: { ctx: Ctx }) {
   const capital = (q.data?.sum || []).reduce((a, r) => a + Number(r.capital), 0);
   return (
     <>
-      <PageHead eyebrow="Investors" title="Investor Relations" desc="Who owns what, distributions, and the reports and tax documents each investor sees in their portal."
+      <PageHead eyebrow="Investors" title="Investor Relations" desc={`Who owns what, distributions, and the reports and tax documents each investor sees in ${appName()}.`}
         actions={canEdit && <>
           <button className="btn" onClick={() => setDocForm({ folder: "tax", hotel_id: "", investor_id: "", tax_year: String(new Date().getFullYear() - 1) })}>Share a document</button>
           <button className="btn" onClick={() => setDistForm({ hotel_id: ctx.hotels.find((h) => h.status === "operating")?.id, amount: "", paid_on: todayIn(), memo: "" })}>Record distribution</button>
@@ -87,7 +87,7 @@ export function Investors({ ctx }: { ctx: Ctx }) {
         <div className="grid g2">{byInv.map(([id, rows]) => {
           const inv = q.data!.inv.find((i: any) => i.id === id);
           return (
-            <Card key={id} title={<>{rows[0].investor} <SampleBadge show={inv?.data_source === "sample"} /></>} note={inv?.user_id ? <Pill kind="good">Portal access</Pill> : <Pill kind="mute">No portal login</Pill>}
+            <Card key={id} title={<>{rows[0].investor} <SampleBadge show={inv?.data_source === "sample"} /></>} note={inv?.user_id ? <Pill kind="good">{appName()} access</Pill> : <Pill kind="mute">No {appName()} login</Pill>}
               actions={canEdit && <button className="btn sm" onClick={() => setForm({ ...inv, holdings: rows.map((r) => ({ hotel_id: r.hotel_id, pct: r.ownership_pct, capital: r.capital })) })}>Edit</button>} flush>
               <div className="tw"><table>
                 <thead><tr><th>Hotel</th><th className="n">Ownership</th><th className="n">Capital</th><th className="n">Dist. YTD</th><th className="n">Dist. total</th></tr></thead>

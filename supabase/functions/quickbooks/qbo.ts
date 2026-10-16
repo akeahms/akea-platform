@@ -45,13 +45,24 @@ export async function revoke(refreshToken: string | null) {
 /** A valid access token; refreshes (and saves the rotated refresh token) when it's about to expire. */
 export async function accessToken(admin: any, c: Conn, force = false) {
   if (!force && c.access_token && c.access_expires_at && Date.parse(c.access_expires_at) - Date.now() > 120_000) return c.access_token;
+  const used = c.refresh_token || "";
   try {
-    const t = await tokenCall({ grant_type: "refresh_token", refresh_token: c.refresh_token || "" });
+    const t = await tokenCall({ grant_type: "refresh_token", refresh_token: used });
     Object.assign(c, t);
-    await admin.from("qbo_connections").update({ ...t, updated_at: new Date().toISOString() }).eq("hotel_id", c.hotel_id);
+    // save only if nobody else refreshed meanwhile (compare-and-swap on the token we used); retry the save once
+    for (let i = 0; i < 2; i++) {
+      const { error } = await admin.from("qbo_connections").update({ ...t, updated_at: new Date().toISOString() }).eq("hotel_id", c.hotel_id).eq("refresh_token", used);
+      if (!error) break;
+      if (i === 1) console.error("quickbooks: couldn't save the new token:", error.message);
+    }
     return t.access_token;
   } catch (e) {
     const q = e as QboError;
+    // another sync (nightly job or a click) may have rotated the token first: use the newer stored one
+    if (q.relogin) {
+      const { data: now } = await admin.from("qbo_connections").select("access_token,refresh_token,access_expires_at").eq("hotel_id", c.hotel_id).maybeSingle();
+      if (now?.refresh_token && now.refresh_token !== used) { Object.assign(c, now); return accessToken(admin, c, false); }
+    }
     if (q.relogin) await admin.from("qbo_connections").update({ status: "needs_relogin", last_error: "QuickBooks needs you to sign in again (the connection expired or was removed in QuickBooks).", updated_at: new Date().toISOString() }).eq("hotel_id", c.hotel_id);
     if (q.relogin) throw new QboError("QuickBooks needs you to sign in again.", q.code, true);
     throw e;
@@ -194,16 +205,28 @@ async function ensureVendor(admin: any, c: Conn, vendor: { id: string; name: str
 }
 
 // ------------------------------------------------------------------ the push
+/** Every row of a query, 500 at a time (PostgREST caps a single read at 1000 rows). */
+export async function allRows(make: (from: number, to: number) => any, cap = 20000): Promise<any[]> {
+  const out: any[] = [];
+  for (let from = 0; from < cap; from += 500) {
+    const { data, error } = await make(from, from + 499);
+    if (error) throw new Error(error.message);
+    out.push(...(data || []));
+    if (!data || data.length < 500) break;
+  }
+  return out;
+}
+const MAX_ATTEMPTS = 8;   // an item that has failed this often stops being retried automatically (it stays in the log)
 export type SyncCounts = { synced: number; failed: number; needs_mapping: number };
 
 export async function syncHotel(admin: any, c: Conn, opts: { yesterday: string; limit?: number }): Promise<SyncCounts> {
   const counts: SyncCounts = { synced: 0, failed: 0, needs_mapping: 0 };
   const limit = opts.limit ?? 150;
-  const [{ data: s }, { data: gls }, { data: maps }, { data: logs }] = await Promise.all([
+  const [{ data: s }, gls, maps, logs] = await Promise.all([
     admin.from("qbo_settings").select("*").eq("hotel_id", c.hotel_id).maybeSingle(),
-    admin.from("gl_accounts").select("id,number,name,type,full_name,system_key").eq("hotel_id", c.hotel_id),    // this hotel's own chart of accounts
-    admin.from("qbo_account_map").select("gl_account_id,qbo_account_id").eq("hotel_id", c.hotel_id),
-    admin.from("qbo_sync_log").select("object_type,object_key,status,qbo_id,attempts").eq("hotel_id", c.hotel_id),
+    allRows((f, t) => admin.from("gl_accounts").select("id,number,name,type,full_name,system_key").eq("hotel_id", c.hotel_id).order("id").range(f, t)),   // this hotel's own chart
+    allRows((f, t) => admin.from("qbo_account_map").select("gl_account_id,qbo_account_id").eq("hotel_id", c.hotel_id).order("gl_account_id").range(f, t)),
+    allRows((f, t) => admin.from("qbo_sync_log").select("object_type,object_key,status,qbo_id,attempts").eq("hotel_id", c.hotel_id).order("object_type").order("object_key").range(f, t), 200000),
   ]);
   const settings = s || { start_date: opts.yesterday, push_daily_revenue: true, push_bills: true, push_payments: true, push_journals: true };
   const start = settings.start_date;
@@ -211,7 +234,8 @@ export async function syncHotel(admin: any, c: Conn, opts: { yesterday: string; 
   const glById = new Map<string, Gl>((gls || []).map((g: Gl) => [g.id, g]));
   const map = new Map<string, string>((maps || []).map((m: any) => [m.gl_account_id, m.qbo_account_id]));
   const log = new Map<string, any>((logs || []).map((l: any) => [`${l.object_type}|${l.object_key}`, l]));
-  const done = (t: string, k: string) => log.get(`${t}|${k}`)?.status === "synced";
+  // already sent, or given up on after repeated failures (still visible in the sync log)
+  const done = (t: string, k: string) => { const l = log.get(`${t}|${k}`); return l?.status === "synced" || (l?.status === "failed" && (l.attempts || 0) >= MAX_ATTEMPTS); };
   let budget = limit;
 
   async function record(t: string, k: string, label: string, amount: number | null, status: "synced" | "failed" | "needs_mapping", qboId: string | null, error: string | null) {
@@ -237,10 +261,11 @@ export async function syncHotel(admin: any, c: Conn, opts: { yesterday: string; 
 
   // 1) daily revenue from the night audit
   if (settings.push_daily_revenue) {
-    const { data: days } = await admin.from("daily_metrics").select("*").eq("hotel_id", c.hotel_id).gte("business_date", start).lte("business_date", opts.yesterday).order("business_date").limit(120);
-    for (const dm of days || []) {
+    const days = await allRows((f, t) => admin.from("daily_metrics").select("*").eq("hotel_id", c.hotel_id).neq("data_source", "sample")
+      .gte("business_date", start).lte("business_date", opts.yesterday).order("business_date").range(f, t));
+    for (const dm of days) {
       if (done("daily_revenue", dm.business_date)) continue;
-      const { data: deps } = await admin.from("expected_deposits").select("source,amount,status").eq("hotel_id", c.hotel_id).eq("business_date", dm.business_date);
+      const { data: deps } = await admin.from("expected_deposits").select("source,amount,status").eq("hotel_id", c.hotel_id).eq("business_date", dm.business_date).neq("data_source", "sample");
       const raw = dailyRevenueLines(dm, (deps || []).filter((d: any) => d.status !== "written_off"));
       if (!raw.length) continue;
       const total = r2(raw.reduce((a, l) => a + l.credit, 0));
@@ -257,9 +282,10 @@ export async function syncHotel(admin: any, c: Conn, opts: { yesterday: string; 
   }
 
   // 2) approved bills (vendor created in QuickBooks when needed)
-  const { data: bills } = settings.push_bills || settings.push_payments
-    ? await admin.from("bills").select("*, vendors(id,name)").eq("hotel_id", c.hotel_id).in("status", ["approved", "scheduled", "paid"]).order("created_at").limit(500)
-    : { data: [] };
+  const bills = settings.push_bills || settings.push_payments
+    ? await allRows((f, t) => admin.from("bills").select("*, vendors(id,name)").eq("hotel_id", c.hotel_id).neq("data_source", "sample")
+        .in("status", ["approved", "scheduled", "paid"]).order("created_at").order("id").range(f, t))
+    : [];
   const eligible = (bills || []).filter((b: any) => (b.invoice_date || String(b.created_at).slice(0, 10)) >= start);
   if (settings.push_bills) {
     for (const b of eligible) {
@@ -300,9 +326,9 @@ export async function syncHotel(admin: any, c: Conn, opts: { yesterday: string; 
 
   // 4) journal entries made by hand in Akea (bill and payment postings are already covered above)
   if (settings.push_journals) {
-    const { data: jes } = await admin.from("journal_entries").select("id,entry_date,memo,journal_lines(account_id,debit,credit,memo)")
-      .eq("hotel_id", c.hotel_id).eq("source", "manual").gte("entry_date", start).order("entry_date").limit(200);
-    for (const je of jes || []) {
+    const jes = await allRows((f, t) => admin.from("journal_entries").select("id,entry_date,memo,journal_lines(account_id,debit,credit,memo)")
+      .eq("hotel_id", c.hotel_id).eq("source", "manual").neq("data_source", "sample").gte("entry_date", start).order("entry_date").order("id").range(f, t));
+    for (const je of jes) {
       if (done("journal", je.id)) continue;
       const lines: Line[] = (je.journal_lines || []).map((l: any) => ({ gl_account_id: l.account_id, debit: Number(l.debit), credit: Number(l.credit), desc: l.memo || je.memo || "" }));
       const total = r2(lines.reduce((a, l) => a + l.debit, 0));

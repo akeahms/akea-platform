@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from "react";
 import { db, currentSession } from "../lib/sb";
-import { Ctx, addDays, todayIn, fmtDate, wallToUtc, inTz, fmtClock, weekStart, DOW, hoursBetween, hrs, usd } from "../lib/app";
+import { Ctx, addDays, todayIn, fmtDate, wallToUtc, inTz, fmtClock, weekStart, DOW, hoursBetween, hrs, usd, appName } from "../lib/app";
 import { PageHead, Card, Pill, Loading, ErrorBox, Empty, useAsync, Modal, Field, HotelSelect, Notice, SampleBadge, downloadFile, toCsv, Seg } from "../ui";
 
 type Dept = { id: string; name: string; color: string; sort: number };
@@ -82,8 +82,10 @@ export function Schedule({ ctx }: { ctx: Ctx }) {
       q.reload();
     } catch (e: any) { setMsg({ kind: "bad", text: e.message }); }
   }
+  const [copying, setCopying] = useState(false);
   async function copyLastWeek() {
-    setMsg(null);
+    if (copying) return;
+    setMsg(null); setCopying(true);
     try {
       const from = wallToUtc(addDays(week, -7), "00:00", tz), to = wallToUtc(week, "00:00", tz);
       const prev = await db.get<Shift>(`shifts?select=*&hotel_id=eq.${hotelId}&starts_at=gte.${from}&starts_at=lt.${to}`);
@@ -93,10 +95,15 @@ export function Schedule({ ctx }: { ctx: Ctx }) {
         return { tenant_id: ctx.tenant.id, hotel_id: hotelId, employee_id: s.employee_id, department_id: s.department_id, position: s.position,
           starts_at: wallToUtc(addDays(a.date, 7), a.time, tz), ends_at: wallToUtc(addDays(b.date, 7), b.time, tz), break_minutes: s.break_minutes, notes: s.notes, published: false };
       });
-      await db.insert("shifts", rows, "id");
-      setMsg({ kind: "good", text: `Copied ${rows.length} shifts from last week as drafts. Review, then publish.` });
+      // shifts already in this week (e.g. copied before) aren't added twice
+      const have = await db.get<Shift>(`shifts?select=employee_id,starts_at&hotel_id=eq.${hotelId}&starts_at=gte.${to}&starts_at=lt.${wallToUtc(addDays(week, 7), "00:00", tz)}`);
+      const seen = new Set(have.map((s) => `${s.employee_id}|${new Date(s.starts_at).toISOString()}`));
+      const fresh = rows.filter((r) => !seen.has(`${r.employee_id}|${new Date(r.starts_at).toISOString()}`));
+      if (!fresh.length) { setMsg({ kind: "good", text: "Those shifts are already on this week." }); return; }
+      await db.insert("shifts", fresh, "id");
+      setMsg({ kind: "good", text: `Copied ${fresh.length} shifts from last week as drafts${fresh.length < rows.length ? ` (${rows.length - fresh.length} were already there)` : ""}. Review, then publish.` });
       q.reload();
-    } catch (e: any) { setMsg({ kind: "bad", text: e.message }); }
+    } catch (e: any) { setMsg({ kind: "bad", text: e.message }); } finally { setCopying(false); }
   }
   function openNew(empId: string | null, date: string) {
     const e = data?.emps.find((x) => x.id === empId);
@@ -144,7 +151,7 @@ export function Schedule({ ctx }: { ctx: Ctx }) {
     <>
       <PageHead eyebrow="Workforce" title="Schedule" desc="Plan the week by department. Drafts are dashed until you publish them to staff."
         actions={canEdit && data ? (<>
-          <button className="btn" onClick={copyLastWeek}>Copy last week</button>
+          <button className="btn" disabled={copying} onClick={copyLastWeek}>{copying ? "Copying…" : "Copy last week"}</button>
           <button className="btn pri" onClick={publish} disabled={!unpublished}>{unpublished ? `Publish ${unpublished} draft${unpublished === 1 ? "" : "s"}` : "All published"}</button>
         </>) : null} />
       <div className="toolbar">
@@ -481,7 +488,7 @@ export function Timesheets({ ctx }: { ctx: Ctx }) {
       const ids: string[] = [];
       for (const h of hotelId ? [hotelId] : operating.map((x) => x.id)) {
         const tz = ctx.hotels.find((x) => x.id === h)?.timezone || "America/Chicago";
-        const ps = await db.get<any>(`time_punches?select=id&hotel_id=eq.${h}&approved_at=is.null&clock_out=not.is.null&clock_in=gte.${wallToUtc(range[0], "00:00", tz)}&clock_in=lt.${wallToUtc(addDays(range[1], 1), "00:00", tz)}`);
+        const ps = await db.getAll<any>(`time_punches?select=id&hotel_id=eq.${h}&approved_at=is.null&clock_out=not.is.null&clock_in=gte.${wallToUtc(range[0], "00:00", tz)}&clock_in=lt.${wallToUtc(addDays(range[1], 1), "00:00", tz)}&order=id.asc`);
         ids.push(...ps.map((p: any) => p.id));
       }
       const n = ids.length ? await db.rpc<number>("approve_punches", { p_ids: ids }) : 0;
@@ -638,7 +645,7 @@ export function Team({ ctx }: { ctx: Ctx }) {
       if (edit.pin) await db.rpc("set_employee_pin", { p_employee: id, p_pin: edit.pin });
       if (edit.login_email) {
         const prof = await db.get<any>(`profiles?select=user_id&email=eq.${encodeURIComponent(edit.login_email.trim().toLowerCase())}`);
-        if (!prof.length) throw new Error(`Saved, but no portal account uses ${edit.login_email}. Invite them on Users & Permissions first.`);
+        if (!prof.length) throw new Error(`Saved, but no ${appName()} account uses ${edit.login_email}. Invite them on Users & Permissions first.`);
         await db.update("employees", `id=eq.${id}`, { user_id: prof[0].user_id }, "id");
       }
       setEdit(null);
@@ -665,7 +672,7 @@ export function Team({ ctx }: { ctx: Ctx }) {
         <Card flush>
           {list.length ? (
             <div className="tw"><table>
-              <thead><tr><th>Name</th><th>Department</th><th>Position</th><th>Type</th>{canPay && <th className="n">Pay</th>}<th>Hired</th><th>Portal login</th><th>PIN</th><th></th></tr></thead>
+              <thead><tr><th>Name</th><th>Department</th><th>Position</th><th>Type</th>{canPay && <th className="n">Pay</th>}<th>Hired</th><th>{appName()} login</th><th>PIN</th><th></th></tr></thead>
               <tbody>{list.map((e) => {
                 const d = deptOf(e.department_id); const p = payOf(e.id);
                 return (
@@ -732,7 +739,7 @@ export function Team({ ctx }: { ctx: Ctx }) {
             <Field label={edit.has_pin ? "New PIN (leave blank to keep)" : "Time-clock PIN"} id="ePin" hint="4–6 digits, unique at this hotel">
               <input id="ePin" inputMode="numeric" pattern="\d{4,6}" maxLength={6} autoComplete="off" value={edit.pin || ""} onChange={(e) => setEdit({ ...edit, pin: e.target.value.replace(/\D/g, "") })} />
             </Field>
-            <Field label={edit.user_id ? "Portal login (linked) — change by email" : "Link to portal login (email)"} id="eLog" hint="Lets them clock in from their phone and see their schedule">
+            <Field label={edit.user_id ? `${appName()} login (linked) — change by email` : `Link to ${appName()} login (email)`} id="eLog" hint="Lets them clock in from their phone and see their schedule">
               <input id="eLog" type="email" value={edit.login_email || ""} onChange={(e) => setEdit({ ...edit, login_email: e.target.value })} placeholder="their sign-in email" />
             </Field>
           </div>

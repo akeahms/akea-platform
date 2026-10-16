@@ -27,9 +27,10 @@ function deltaCell(cur: number | null, prev: number | null, fmt: (v: number) => 
 export async function buildSnapshot(db: any, hotelId: string, date: string, portalUrl: string) {
   const { data: hotel } = await db.from("hotels").select("id,tenant_id,name,city,state,rooms,timezone").eq("id", hotelId).single();
   if (!hotel) throw new Error("Hotel not found");
-  const { data: tenant } = await db.from("tenants").select("name,brand_name,logo_url,accent_color,email_sender").eq("id", hotel.tenant_id).single();
-  const brand = tenant?.brand_name || tenant?.name || "Hotel Portal";
-  const accent = tenant?.accent_color || "#9A7432";
+  const { data: tenant } = await db.from("tenants").select("name,brand_name,product_name,logo_url,accent_color,email_sender").eq("id", hotel.tenant_id).single();
+  // white-label names; only a plain #rrggbb colour goes into the email's styles
+  const brand = (tenant?.brand_name || tenant?.name || "Hotel operations").replace(/[\r\n<>"]/g, " ").trim();
+  const accent = /^#[0-9a-f]{6}$/i.test(tenant?.accent_color || "") ? tenant!.accent_color : "#9A7432";
   const ly = addDays(date, -364);
   const monthStart = date.slice(0, 8) + "01", yearStart = date.slice(0, 5) + "01-01";
   const [{ data: dm }, { data: dmLy }, { data: stats }, { data: segs }, { data: deps }, { data: bud }, { data: hist }] = await Promise.all([
@@ -163,7 +164,9 @@ export async function sendSnapshot(admin: any, hotelId: string, date: string, po
     to = [...new Set((rec || []).map((r: any) => String(r.email).toLowerCase()))] as string[];
   }
   try {
-    const r = await sendEmail({ from: snap.from || "reports@akeahms.com", fromName: snap.brand, to, subject: snap.subject, html: snap.html });
+    // sender address must be a plain email address (no header injection)
+    const from = /^[A-Z0-9._%+\-]+@[A-Z0-9.\-]+\.[A-Z]{2,}$/i.test(snap.from || "") ? snap.from! : "reports@akeahms.com";
+    const r = await sendEmail({ from, fromName: snap.brand, to, subject: snap.subject.replace(/[\r\n]+/g, " "), html: snap.html });
     await admin.from("snapshot_sends").insert({ tenant_id: snap.tenant_id, hotel_id: hotelId, business_date: date, recipients: r.sent, status: r.sent ? "sent" : "skipped", detail: r.note || to.join(", ") });
     return r;
   } catch (e) {

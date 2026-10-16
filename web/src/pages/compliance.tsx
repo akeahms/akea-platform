@@ -44,7 +44,7 @@ export function Vault({ ctx, folder: initial }: { ctx: Ctx; folder?: string }) {
   const [preview, setPreview] = useState<{ name: string; url: string } | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const q = useAsync(() => db.get<any>(`documents?select=*&tenant_id=eq.${ctx.tenant.id}${folder ? `&folder=eq.${folder}` : ""}${hotelId ? `&or=(hotel_id.eq.${hotelId},hotel_id.is.null)` : ""}&order=created_at.desc&limit=500`), [folder, hotelId]);
-  const counts = useAsync(() => db.get<any>(`documents?select=folder&tenant_id=eq.${ctx.tenant.id}`), [q.data]);
+  const counts = useAsync(() => db.getAll<any>(`documents?select=id,folder&tenant_id=eq.${ctx.tenant.id}&order=id.asc`), [q.data]);
   const list = (q.data || []).filter((d: any) => !search || `${d.name} ${d.tags?.join(" ")}`.toLowerCase().includes(search.toLowerCase()));
   const hName = (id: string | null) => (id ? ctx.hotels.find((h) => h.id === id)?.name : "Company-wide") || "";
   async function doUpload(e: React.FormEvent) {

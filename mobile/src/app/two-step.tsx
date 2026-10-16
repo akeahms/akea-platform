@@ -1,3 +1,4 @@
+import { PRODUCT_NAME } from "@/constants";
 import React, { useEffect, useState } from "react";
 import { StyleSheet, Text, TextInput, View, Pressable } from "react-native";
 import { mfa, auth } from "@/lib/sb";
@@ -11,6 +12,7 @@ export default function TwoStep() {
   const [err, setErr] = useState("");
   useEffect(() => { mfa.factors().then((fs) => setFactor(fs.find((f) => f.status === "verified")?.id || null), (e) => setErr(e.message)); }, []);
   async function verify() {
+    if (busy) return;   // the keyboard "go" key can fire while a request is running
     if (!factor) return;
     setBusy(true); setErr("");
     try { await mfa.verify(factor, code); } catch (e: any) { setErr(e.message); setCode(""); } finally { setBusy(false); }
@@ -20,13 +22,13 @@ export default function TwoStep() {
       <Text style={styles.title}>Two-step sign-in</Text>
       {factor === undefined && !err ? <Loading /> : factor ? (
         <>
-          <Text style={styles.sub}>Open your authenticator app and enter the 6-digit code for Akea Portal.</Text>
+          <Text style={styles.sub}>Open your authenticator app and enter the 6-digit code for {PRODUCT_NAME}.</Text>
           <TextInput style={styles.code} value={code} onChangeText={(t) => setCode(t.replace(/\D/g, "").slice(0, 6))} keyboardType="number-pad"
             textContentType="oneTimeCode" autoComplete="one-time-code" autoFocus placeholder="123456" placeholderTextColor="#B9B3A6" onSubmitEditing={verify} />
           <Button title="Verify" onPress={verify} busy={busy} disabled={code.length !== 6} />
         </>
       ) : (
-        <Text style={styles.sub}>Your role needs two-step sign-in. Set it up once on the web portal (Sign-in & Security), then come back and sign in here.</Text>
+        <Text style={styles.sub}>Your role needs two-step sign-in. Set it up once in {PRODUCT_NAME} on the web (Sign-in & Security), then come back and sign in here.</Text>
       )}
       {err ? <ErrorText text={err} /> : null}
       <Pressable onPress={() => auth.signOut()} hitSlop={8}><Text style={styles.link}>Sign out</Text></Pressable>

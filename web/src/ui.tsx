@@ -1,11 +1,18 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 
 export function useAsync<T>(fn: () => Promise<T>, deps: unknown[]) {
   const [state, setState] = useState<{ data?: T; error?: string; loading: boolean }>({ loading: true });
   const [tick, setTick] = useState(0);
+  const depKey = useRef<string>("");
   useEffect(() => {
     let live = true;
-    setState((s) => ({ ...s, loading: true, error: undefined }));
+    // a different selection (hotel, date…) clears the old data so it can't be shown or saved under the new one;
+    // a plain refresh keeps it on screen while reloading
+    let key = "";
+    try { key = JSON.stringify(deps); } catch { key = String(Math.random()); }
+    const changed = key !== depKey.current;
+    depKey.current = key;
+    setState((s) => (changed ? { loading: true } : { ...s, loading: true, error: undefined }));
     fn().then(
       (data) => live && setState({ data, loading: false }),
       (e) => live && setState({ error: e?.message || String(e), loading: false }),
@@ -194,25 +201,45 @@ export function HBars(p: { rows: { label: string; value: number; color?: string 
 }
 
 // ---------------- shared building blocks ----------------
-export function Modal(p: { title: string; onClose: () => void; wide?: boolean; children: React.ReactNode; onSubmit?: (e: React.FormEvent) => void; footer?: React.ReactNode }) {
+export function Modal(p: { title: string; onClose: () => void; wide?: boolean; children: React.ReactNode; onSubmit?: (e: React.FormEvent) => void | Promise<void>; footer?: React.ReactNode }) {
+  const [busy, setBusy] = useState(false);
+  const scrim = useRef<HTMLDivElement>(null);
+  const close = useRef(p.onClose);
+  close.current = p.onClose;
+  const live = useRef(true);
+  useEffect(() => () => { live.current = false; }, []);
   useEffect(() => {
-    const k = (e: KeyboardEvent) => e.key === "Escape" && p.onClose();
+    // Escape closes only the top-most dialog
+    const k = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      const all = document.querySelectorAll(".modal-scrim");
+      if (all[all.length - 1] === scrim.current) close.current();
+    };
     window.addEventListener("keydown", k);
     return () => window.removeEventListener("keydown", k);
   }, []);
+  // one save at a time: while it runs the dialog's controls are disabled and further submits are ignored
+  async function submit(e: React.FormEvent) {
+    if (busy) { e.preventDefault(); return; }
+    setBusy(true);
+    try { await p.onSubmit!(e); } finally { if (live.current) setBusy(false); }
+  }
   const body = (
-    <>
+    <fieldset disabled={busy} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }} aria-busy={busy}>
       <h3>{p.title}</h3>
       {p.children}
       {p.footer && <div className="acts" style={{ marginTop: 18, justifyContent: "flex-end" }}>{p.footer}</div>}
-    </>
+    </fieldset>
   );
+  // a click that starts inside the dialog and ends on the backdrop (e.g. selecting text) doesn't close it
+  let downOnScrim = false;
   return (
-    <div className="modal-scrim" onMouseDown={p.onClose}>
+    <div className="modal-scrim" ref={scrim} onMouseDown={(e) => { downOnScrim = e.target === e.currentTarget; }}
+      onMouseUp={(e) => { if (downOnScrim && e.target === e.currentTarget && !busy) p.onClose(); downOnScrim = false; }}>
       {p.onSubmit ? (
-        <form className={"modal" + (p.wide ? " wide" : "")} role="dialog" aria-label={p.title} onMouseDown={(e) => e.stopPropagation()} onSubmit={p.onSubmit}>{body}</form>
+        <form className={"modal" + (p.wide ? " wide" : "")} role="dialog" aria-modal="true" aria-label={p.title} onSubmit={submit}>{body}</form>
       ) : (
-        <div className={"modal" + (p.wide ? " wide" : "")} role="dialog" aria-label={p.title} onMouseDown={(e) => e.stopPropagation()}>{body}</div>
+        <div className={"modal" + (p.wide ? " wide" : "")} role="dialog" aria-modal="true" aria-label={p.title}>{body}</div>
       )}
     </div>
   );
@@ -262,8 +289,10 @@ export function downloadFile(name: string, content: BlobPart, type = "text/csv")
 }
 export function toCsv(rows: (string | number | null | undefined)[][]) {
   return rows.map((r) => r.map((c) => {
-    const s = c == null ? "" : String(c);
-    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    let s = c == null ? "" : String(c);
+    // text starting with = + - @ (or a tab/return) would run as a formula in Excel: make it plain text. Real numbers are left alone.
+    if (typeof c === "string" && /^[=+\-@\t\r]/.test(s) && !/^-?\d+(\.\d+)?$/.test(s)) s = "'" + s;
+    return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
   }).join(",")).join("\r\n");
 }
 

@@ -3,7 +3,7 @@ import { Image, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, Te
 import { auth } from "@/lib/sb";
 import { Button, ErrorText } from "@/components/ui";
 import { brand, colors, space } from "@/theme";
-import { PORTAL_URL } from "@/constants";
+import { PORTAL_URL, PRODUCT_NAME } from "@/constants";
 
 export default function SignIn() {
   const [email, setEmail] = useState("");
@@ -12,6 +12,7 @@ export default function SignIn() {
   const [err, setErr] = useState("");
   const [note, setNote] = useState("");
   async function go() {
+    if (busy) return;   // the keyboard "go" key can fire while a request is running
     setBusy(true); setErr(""); setNote("");
     try { await auth.signIn(email.trim(), password); }
     catch (e: any) { setErr(e.message === "Invalid login credentials" ? "That email and password don't match." : e.message); }
@@ -27,7 +28,7 @@ export default function SignIn() {
       <ScrollView contentContainerStyle={styles.wrap} keyboardShouldPersistTaps="handled">
         <Image source={require("../../assets/logo.png")} style={styles.logo} resizeMode="contain" accessibilityLabel="Akea Hotel Management Services" />
         <Text style={styles.title}>Sign in</Text>
-        <Text style={styles.sub}>Use the same email and password as the web portal.</Text>
+        <Text style={styles.sub}>Use the same email and password as {PRODUCT_NAME} on the web.</Text>
         <View style={styles.form}>
           <TextInput style={styles.input} placeholder="Work email" autoCapitalize="none" autoComplete="email" keyboardType="email-address" textContentType="username"
             value={email} onChangeText={setEmail} placeholderTextColor="#8A8578" />

@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { auth, onAuth, currentSession, Session, mfa } from "./lib/sb";
 import { SocialButtons, MfaGate, AccountSecurity } from "./security";
-import { loadContext, makeCan, Ctx, Membership, Hotel } from "./lib/app";
+import { loadContext, makeCan, Ctx, Membership, Hotel, appName, productName, loadBranding, Branding, safeLogo, safeColor } from "./lib/app";
 import { Portfolio, HotelOverview, Str } from "./pages/dashboards";
 import { Hotels, Users, Company, Settings } from "./pages/admin";
 import { Reports, Snapshot } from "./pages/reports";
@@ -10,6 +10,7 @@ import { Bills, Vendors, Purchasing, Banking, Accounting } from "./pages/finance
 import { Vault, Permits, Insurance, AlertsPanel, useAlerts } from "./pages/compliance";
 import { Investors, InvestorPortal, LoanPackage, PfsPage, Construction } from "./pages/capital";
 import { AskAI, PdfFiller } from "./pages/intelligence";
+import { PlatformCosts } from "./pages/platform";
 import { Loading, ErrorBox } from "./ui";
 
 // ---------------- routing: #route/param ----------------
@@ -26,6 +27,15 @@ function useRoute() {
 
 // ---------------- sign-in screens ----------------
 function AuthScreen({ recovery, onRecovered }: { recovery: boolean; onRecovered: () => void }) {
+  const [brand, setBrand] = useState<Branding | null>(null);
+  useEffect(() => {
+    loadBranding().then((b) => {
+      setBrand(b);
+      const c = safeColor(b?.accent_color);
+      if (c) document.documentElement.style.setProperty("--accent", c);
+      document.title = b?.product_name || "Sign in";
+    });
+  }, []);
   const [mode, setMode] = useState<"in" | "up" | "reset" | "newpw" | "link">(recovery ? "newpw" : "in");
   const [f, setF] = useState({ name: "", email: "", password: "" });
   const [busy, setBusy] = useState(false);
@@ -60,12 +70,12 @@ function AuthScreen({ recovery, onRecovered }: { recovery: boolean; onRecovered:
   return (
     <div className="auth">
       <div className="auth-art" aria-hidden="true">
-        <img src="/logo.png" alt="" className="auth-logo" />
+        <img src={safeLogo(brand?.logo_url)} alt="" className="auth-logo" />
         <p className="auth-quote">Every hotel, every number, one place.</p>
-        <span className="auth-foot">Hotel Operations Platform</span>
+        <span className="auth-foot">{brand?.product_name || "Hotel operations"}</span>
       </div>
       <form className="auth-card" onSubmit={submit}>
-        <img src="/logo.png" alt="Akea Hotel Management Services" className="auth-logo-sm" />
+        <img src={safeLogo(brand?.logo_url)} alt={brand?.brand_name || brand?.name || ""} className="auth-logo-sm" />
         <h1>{title}</h1>
         {(mode === "in" || mode === "up") && <SocialButtons />}
         {mode === "up" && (
@@ -154,6 +164,7 @@ const NAV: { group: string; items: NavItem[] }[] = [
     { id: "company", label: "Company Information", module: "company", icon: I.book },
     { id: "users", label: "Users & Permissions", module: "users", icon: I.people },
     { id: "settings", label: "White-label Settings", module: "settings", icon: I.palette },
+    { id: "platform-costs", label: "Platform Costs", module: "platform_costs", icon: I.bill },
   ] },
 ];
 const allowedItem = (ctx: Ctx, i: NavItem) => (i.show ? i.show(ctx) : ctx.can(i.module, i.min || "view"));
@@ -167,9 +178,9 @@ function Shell({ ctx, session }: { ctx: Ctx; session: Session }) {
   const [page, param] = route.split("/");
   const t = ctx.tenant;
   useEffect(() => {
-    if (t.accent_color) document.documentElement.style.setProperty("--accent", t.accent_color);
-    document.title = `${t.brand_name || t.name} · Portal`;
-  }, [t.accent_color, t.brand_name, t.name]);
+    if (safeColor(t.accent_color)) document.documentElement.style.setProperty("--accent", safeColor(t.accent_color)!);
+    document.title = productName(t);
+  }, [t.accent_color, t.brand_name, t.name, t.product_name]);
   useEffect(() => { setMenu(false); setBell(false); }, [route]);
   const items = NAV.flatMap((g) => g.items);
   const allowed = (id: string) => id === "account" || items.some((i) => i.id === id && allowedItem(ctx, i));
@@ -205,15 +216,16 @@ function Shell({ ctx, session }: { ctx: Ctx; session: Session }) {
       case "company": return <Company ctx={ctx} />;
       case "users": return <Users ctx={ctx} />;
       case "settings": return <Settings ctx={ctx} />;
+      case "platform-costs": return <PlatformCosts ctx={ctx} />;
       case "account": return <AccountSecurity required={ctx.membership.roles.requires_mfa} email={session.user.email} />;
-      default: return <div className="empty"><b>Your role doesn't include any portal pages yet.</b><span>Ask your administrator to update your access.</span></div>;
+      default: return <div className="empty"><b>Your role doesn't include any {appName()} pages yet.</b><span>Ask your administrator to update your access.</span></div>;
     }
   })();
   return (
     <div className="app">
       <aside className={"rail" + (menu ? " open" : "")} aria-label="Main menu">
         <div className="brand">
-          <img src={t.logo_url || "/logo.png"} alt={t.brand_name || t.name} />
+          <img src={safeLogo(t.logo_url)} alt={t.brand_name || t.name} />
           <span className="sub">Operations Platform</span>
         </div>
         <nav className="nav">
@@ -283,14 +295,16 @@ export default function App() {
   }, [session?.user.id, recovery, tick]);
 
   // Two-step sign-in: required by role, or chosen by the user (has a verified authenticator).
+  useEffect(() => { setMfaState("checking"); }, [session?.user.id]);
   useEffect(() => {
     if (!data?.membership) return;
     if (mfa.level() === "aal2") { setMfaState("ok"); return; }
     mfa.factors().then(
       (fs) => setMfaState(data.membership!.roles.requires_mfa || fs.some((f) => f.status === "verified") ? "needed" : "ok"),
-      () => setMfaState(data.membership!.roles.requires_mfa ? "needed" : "ok"),
+      // couldn't check: don't let anyone past; show the error with a retry
+      () => { setMfaState("checking"); setErr("Couldn't check your two-step sign-in. Check your connection and try again."); },
     );
-  }, [data?.membership?.id, session?.access_token]);
+  }, [data?.membership?.id, session?.access_token, tick]);
 
   const ctx: Ctx | null = useMemo(() => {
     if (!data?.membership) return null;

@@ -1,6 +1,6 @@
 import React, { useRef, useState } from "react";
 import { db, storage, currentSession, callFunction } from "../lib/sb";
-import { Ctx, REPORT_LABEL, guessReportType, yesterday, fmtDate, todayIn } from "../lib/app";
+import { Ctx, REPORT_LABEL, guessReportType, yesterday, fmtDate, todayIn, appName } from "../lib/app";
 import { PageHead, Card, Pill, Loading, ErrorBox, Empty, useAsync, Notice, HotelSelect, Modal, Field } from "../ui";
 import { readReport } from "./intelligence";
 import { readEml } from "../lib/eml";
@@ -29,7 +29,7 @@ export function Reports({ ctx }: { ctx: Ctx }) {
       db.get<any>(`reports?select=id,hotel_id,report_type,business_date,file_name,file_path,file_format,source,status,confidence,received_at,extracted,extracted_notes&tenant_id=eq.${ctx.tenant.id}&order=received_at.desc&limit=80`),
       db.rpc<any[]>("missing_reports", { p_date: yesterday() }),
       db.get<any>(`inbound_emails?select=*&tenant_id=eq.${ctx.tenant.id}&order=received_at.desc&limit=20`).catch(() => []),
-      db.get<any>(`hotels?select=id,name,city,report_email,status&tenant_id=eq.${ctx.tenant.id}&order=name.asc`),
+      db.get<any>(`hotels?select=id,name,city,report_email,property_code,status&tenant_id=eq.${ctx.tenant.id}&order=name.asc`),
     ]);
     return { rows, missing, mails, hotels };
   }, [ctx.tenant.id]);
@@ -87,17 +87,21 @@ export function Reports({ ctx }: { ctx: Ctx }) {
       {q.error && <ErrorBox error={q.error} retry={q.reload} />}
       {q.data && (
         <>
-          <Card title="Nightly report email addresses" note="Point each hotel's scheduled PMS reports (or your HelloGM email) to its address">
+          <Card title="Where hotels send their nightly reports" note="One address for every hotel. The hotel is recognised from the report itself.">
+            {ctx.tenant.report_inbox ? (
+              <p>Point each hotel's scheduled PMS reports (or your HelloGM email) to <code className="addr">{ctx.tenant.report_inbox}</code>{" "}
+                <button className="btn sm" onClick={() => copy(ctx.tenant.report_inbox!)}>Copy</button></p>
+            ) : <p className="muted">No report inbox is set up for this company yet.</p>}
             <div className="tw"><table>
-              <thead><tr><th>Hotel</th><th>Send reports to</th><th>Last report by email</th><th></th></tr></thead>
+              <thead><tr><th>Hotel</th><th>Recognised by</th><th>Last report by email</th></tr></thead>
               <tbody>{q.data.hotels.filter((h: any) => h.status === "operating").map((h: any) => {
                 const last = lastFor(h.id);
                 return (
                   <tr key={h.id}>
                     <td><b>{h.name}</b><div className="tag">{h.city}</div></td>
-                    <td><code className="addr">{h.report_email || "—"}</code></td>
+                    <td className="small">{h.property_code ? <>Property code <code>{h.property_code}</code> on the night audit or in the subject</>
+                      : <>Its name in the email subject <span className="muted">(add the property code under Setup → Hotels for automatic matching)</span></>}</td>
                     <td className="small">{last ? <>{fmtDate(last.business_date)} · <Pill kind={statusKind(last.status) as any}>{last.status.replace("_", " ")}</Pill></> : <span className="muted">Nothing yet</span>}</td>
-                    <td>{h.report_email && <button className="btn sm" onClick={() => copy(h.report_email)}>Copy</button>}</td>
                   </tr>
                 );
               })}</tbody>
@@ -216,7 +220,7 @@ export function Snapshot({ ctx }: { ctx: Ctx }) {
   const list = (rec.data || []).filter((r: any) => r.hotel_id === hotelId || r.hotel_id === null);
   return (
     <>
-      <PageHead eyebrow="Data" title="Nightly Snapshot Email" desc="After each hotel's night audit arrives, the portal emails a one-page summary — day, month and year against last year, budget, segments and payments — to the people you choose."
+      <PageHead eyebrow="Data" title="Nightly Snapshot Email" desc={`After each hotel's night audit arrives, ${appName()} emails a one-page summary — day, month and year against last year, budget, segments and payments — to the people you choose.`}
         actions={canEdit && d && <><button className="btn" disabled={busy} onClick={() => send("test")}>Send test to me</button><button className="btn pri" disabled={busy || !list.length} onClick={() => send("send")}>Send now</button></>} />
       <div className="toolbar">
         <HotelSelect hotels={operating} value={hotelId} onChange={(v) => { setHotelId(v); setDate(""); }} />

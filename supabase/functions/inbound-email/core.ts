@@ -18,8 +18,9 @@ export function parseDate(s: string, yearHint?: number): string | null {
     if (+m[1] > 12) return null;
     return `${y}-${pad(+m[1])}-${pad(+m[2])}`;
   }
-  m = s.match(/^([A-Za-z]{3,4})[a-z]*\.?\s+(\d{1,2}),?\s*(\d{4})?$/);
-  if (m && MONTHS[m[1].toLowerCase()]) return `${m[3] || yearHint || new Date().getFullYear()}-${pad(MONTHS[m[1].toLowerCase()])}-${pad(+m[2])}`;
+  m = s.match(/^([A-Za-z]{3,9})\.?\s+(\d{1,2})(?:st|nd|rd|th)?,?\s*(\d{4})?$/);   // Oct 1, October 1st 2026, Sept 9
+  const mon = (w: string) => MONTHS[w.toLowerCase().slice(0, 3)] && (w.length <= 4 || "january february march april may june july august september october november december".includes(w.toLowerCase())) ? MONTHS[w.toLowerCase().slice(0, 3)] : 0;
+  if (m && mon(m[1])) return `${m[3] || yearHint || new Date().getFullYear()}-${pad(mon(m[1]))}-${pad(+m[2])}`;
   m = s.match(/^(\d{1,2})[\s\-]([A-Za-z]{3})[a-z]*[\s\-,]*(\d{2,4})?$/);
   if (m && MONTHS[m[2].toLowerCase()]) {
     let y = m[3] ? +m[3] : yearHint || new Date().getFullYear();

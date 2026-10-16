@@ -42,7 +42,8 @@
       },
       "supabaseUrl": "https://rqyvjloptxdfojaxjirq.supabase.co",
       "supabaseKey": "sb_publishable_Acg0lTpyf3hXxC6USntFFA_MKRwpkmV",
-      "portalUrl": "https://akea-portal.onrender.com"
+      "portalUrl": "https://akea-portal.onrender.com",
+      "productName": "Akea AI Suite"
     }
   }
 }

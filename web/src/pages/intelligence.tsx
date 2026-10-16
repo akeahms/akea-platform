@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { callFunction, db } from "../lib/sb";
-import { Ctx, todayIn, fmtDate } from "../lib/app";
+import { Ctx, todayIn, fmtDate, appName } from "../lib/app";
 import { PageHead, Card, Loading, Notice, Field, useAsync, downloadFile } from "../ui";
 import { documentText } from "../lib/parse";
 import { extractReport } from "../lib/extract";
@@ -197,7 +197,7 @@ export function PdfFiller({ ctx }: { ctx: Ctx }) {
               </ul>
             )}
             <label className="check-row" htmlFor="pfFlat"><input id="pfFlat" type="checkbox" checked={flatten} onChange={(e) => setFlatten(e.target.checked)} /> Lock fields after filling (flatten)</label>
-            <p className="small muted" style={{ margin: 0 }}>Full EIN and Social Security numbers are never stored in the portal — type them into the form yourself.</p>
+            <p className="small muted" style={{ margin: 0 }}>Full EIN and Social Security numbers are never stored in {appName()} — type them into the form yourself.</p>
           </div>
         </Card>
       </div>
