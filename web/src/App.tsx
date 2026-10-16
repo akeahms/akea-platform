@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { auth, onAuth, currentSession, Session, mfa } from "./lib/sb";
-import { SocialButtons, MfaGate, AccountSecurity } from "./security";
+import { SocialButtons, MfaGate, AccountSecurity, PasswordRules, passwordOk } from "./security";
 import { loadContext, makeCan, Ctx, Membership, Hotel, appName, productName, loadBranding, Branding, applyTheme, logoFor, lightLogoFor } from "./lib/app";
 import { AlertsPanel, useAlerts } from "./pages/compliance";
 import { Loading, ErrorBox } from "./ui";
@@ -54,8 +54,12 @@ function AuthScreen({ recovery, onRecovered }: { recovery: boolean; onRecovered:
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
-    setBusy(true);
     setMsg(null);
+    if ((mode === "up" || mode === "newpw") && !passwordOk(f.password)) {
+      setMsg({ kind: "bad", text: "Your password doesn't meet every rule yet." });
+      return;
+    }
+    setBusy(true);
     try {
       if (mode === "in") await auth.signIn(f.email, f.password);
       else if (mode === "up") {
@@ -102,9 +106,9 @@ function AuthScreen({ recovery, onRecovered }: { recovery: boolean; onRecovered:
         )}
         {mode !== "reset" && mode !== "link" && (
           <div className="field"><label htmlFor="aPw">{mode === "newpw" ? "New password" : "Password"}</label>
-            <input id="aPw" type="password" required minLength={mode === "in" ? 1 : 8} autoComplete={mode === "in" ? "current-password" : "new-password"}
-              value={f.password} onChange={(e) => setF({ ...f, password: e.target.value })} />
-            {mode !== "in" && <span className="hint">At least 8 characters.</span>}</div>
+            <input id="aPw" type="password" required minLength={mode === "in" ? 1 : 8} maxLength={mode === "in" ? undefined : 72} autoComplete={mode === "in" ? "current-password" : "new-password"}
+              value={f.password} onChange={(e) => { setF({ ...f, password: e.target.value }); if (msg?.kind === "bad") setMsg(null); }} />
+            {mode !== "in" && <PasswordRules value={f.password} />}</div>
         )}
         <button className="btn pri wide" disabled={busy}>{busy ? "Please wait…" : title}</button>
         {msg && <div className={"banner " + msg.kind} style={{ margin: 0 }}><span>{msg.text}</span></div>}

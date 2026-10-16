@@ -113,6 +113,66 @@ export function MfaGate({ required, email, onDone }: { required: boolean; email:
 }
 
 // ---------------- My account: sign-in security ----------------
+// ---------------- password rules (the server checks the same rules, plus that the password hasn't been used before) ----------------
+export const PASSWORD_RULES: { label: string; ok: (p: string) => boolean }[] = [
+  { label: "At least 8 characters", ok: (p) => p.length >= 8 },
+  { label: "1 uppercase letter", ok: (p) => /[A-Z]/.test(p) },
+  { label: "1 lowercase letter", ok: (p) => /[a-z]/.test(p) },
+  { label: "1 number", ok: (p) => /[0-9]/.test(p) },
+  { label: "1 special character", ok: (p) => /[^A-Za-z0-9]/.test(p) },
+];
+export const passwordOk = (p: string) => PASSWORD_RULES.every((r) => r.ok(p));
+
+export function PasswordRules({ value }: { value: string }) {
+  return (
+    <ul className="pwrules" aria-label="Password rules">
+      {PASSWORD_RULES.map((r) => {
+        const ok = r.ok(value);
+        return <li key={r.label} className={ok ? "ok" : ""}><span aria-hidden="true">{ok ? "✓" : "•"}</span>{r.label}{ok ? <span className="sr-only"> (done)</span> : null}</li>;
+      })}
+      <li className="note">Can't be a password you've used before</li>
+    </ul>
+  );
+}
+
+function ChangePassword() {
+  const [f, setF] = useState({ current: "", next: "", again: "" });
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<{ kind: "good" | "bad"; text: string } | null>(null);
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    setMsg(null);
+    if (!passwordOk(f.next)) { setMsg({ kind: "bad", text: "The new password doesn't meet every rule yet." }); return; }
+    if (f.next !== f.again) { setMsg({ kind: "bad", text: "The two new passwords don't match." }); return; }
+    setBusy(true);
+    try {
+      await auth.updatePassword(f.next, f.current);
+      setF({ current: "", next: "", again: "" });
+      setMsg({ kind: "good", text: "Password changed." });
+    } catch (err: any) {
+      setMsg({ kind: "bad", text: err.message });
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <Card title="Password">
+      <form onSubmit={submit} className="stack">
+        <div className="field"><label htmlFor="pwCur">Current password</label>
+          <input id="pwCur" type="password" autoComplete="current-password" required value={f.current} onChange={(e) => setF({ ...f, current: e.target.value })} /></div>
+        <div className="field"><label htmlFor="pwNew">New password</label>
+          <input id="pwNew" type="password" autoComplete="new-password" required maxLength={72} value={f.next} onChange={(e) => setF({ ...f, next: e.target.value })} />
+          <PasswordRules value={f.next} /></div>
+        <div className="field"><label htmlFor="pwAgain">New password again</label>
+          <input id="pwAgain" type="password" autoComplete="new-password" required maxLength={72} value={f.again} onChange={(e) => setF({ ...f, again: e.target.value })} /></div>
+        <div><button className="btn pri" disabled={busy}>{busy ? "Saving…" : "Change password"}</button></div>
+        {msg && <div className={"banner " + msg.kind} style={{ margin: 0 }}><span>{msg.text}</span></div>}
+        <p className="small muted" style={{ margin: 0 }}>Signed in with Google, Microsoft or a sign-in link and never set a password? Use "Forgot password?" on the sign-in page to set one.</p>
+      </form>
+    </Card>
+  );
+}
+
 export function AccountSecurity({ required, email }: { required: boolean; email: string }) {
   const [factors, setFactors] = useState<Factor[] | null>(null);
   const [err, setErr] = useState("");
@@ -157,6 +217,7 @@ export function AccountSecurity({ required, email }: { required: boolean; email:
             </ul>
             <p className="small muted">Use the same email address everywhere so every method opens the same account.</p>
           </Card>
+          <ChangePassword />
         </div>
       )}
       {factors && !factors.length && !required && <Empty title="Tip: turn on two-step sign-in to protect your account." />}

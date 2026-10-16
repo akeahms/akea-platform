@@ -359,3 +359,11 @@ table.report tr.grand td { font-weight: 700; border-top: 2px solid var(--fg); bo
   .bulkbar, .no-print-head .acts, .no-print-head .link { display: none !important; }
   table.report td, table.report th { padding: 4px 10px; font-size: 11px; }
 }
+
+/* password rules checklist */
+.pwrules { list-style: none; margin: 6px 0 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 2px 12px; font-size: 12px; color: var(--fg-3); }
+.pwrules li { display: flex; gap: 6px; align-items: baseline; }
+.pwrules li span[aria-hidden] { width: 10px; text-align: center; }
+.pwrules li.ok { color: var(--good); }
+.pwrules li.note { grid-column: 1 / -1; }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }

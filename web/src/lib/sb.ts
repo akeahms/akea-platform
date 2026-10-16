@@ -149,11 +149,13 @@ export const auth = {
     });
     if (!res.ok) throw new Error(await errorText(res));
   },
-  async updatePassword(password: string) {
-    const res = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
-      method: "PUT",
+  // Goes through the set-password function, which enforces the password rules and blocks reused passwords.
+  // `current` is needed unless the person just arrived from an emailed reset or sign-in link.
+  async updatePassword(password: string, current?: string) {
+    const res = await fetch(`${SUPABASE_URL}/functions/v1/set-password`, {
+      method: "POST",
       headers: await headers({ "Content-Type": "application/json" }),
-      body: JSON.stringify({ password }),
+      body: JSON.stringify({ password, current }),
     });
     if (!res.ok) throw new Error(await errorText(res));
   },
