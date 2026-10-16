@@ -699,3 +699,6 @@ revoke execute on function public.auto_reconcile(uuid) from public, anon;
 grant execute on function public.auto_reconcile(uuid) to authenticated;
 
 notify pgrst, 'reload schema';
+
+-- helper only used inside the functions above
+revoke execute on function public._bank_tx_allowed(uuid) from authenticated;
