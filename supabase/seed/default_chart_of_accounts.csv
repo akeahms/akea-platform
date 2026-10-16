@@ -1,0 +1,180 @@
+﻿Account,Type,Detail Type
+Accumulated Depreciation,Fixed Asset,Accumulated Depreciation
+Buildings and Improvements,Fixed Asset,Buildings
+Furniture and Equipment,Fixed Asset,Furniture & Fixtures
+Land,Fixed Asset,Land
+Opening Balance Equity,Equity,Opening Balance Equity
+Retained Earnings,Equity,Retained Earnings
+Income,Income,Sales of Product Income
+Income:Banquet Revenue,Income,Sales of Product Income
+Income:Bar Revenue,Income,Sales of Product Income
+Income:Cancellation Fees,Income,Sales of Product Income
+Income:Food Revenue,Income,Sales of Product Income
+Income:Meeting Room Revenue,Income,Sales of Product Income
+Income:Misc Income,Income,Sales of Product Income
+Income:Pet Fees,Income,Sales of Product Income
+Income:Recovery Revenue,Income,Sales of Product Income
+Income:Room Revenue,Income,Sales of Product Income
+Income:Room Revenue:AMEX,Income,Sales of Product Income
+Income:Room Revenue:Cash Deposit,Income,Sales of Product Income
+Income:Room Revenue:DISCOVER,Income,Sales of Product Income
+Income:Room Revenue:VI/MC/DS,Income,Sales of Product Income
+Income:Sales Tax Commission,Income,Sales of Product Income
+Income:Sundry Shop Revenue,Income,Sales of Product Income
+Income:Vending Income,Income,Sales of Product Income
+Depreciation Expense,Other Expense,Depreciation
+Expenses,Expense,Other Business Expenses
+Expenses:DEPARTMENT EXPENSES,Expense,Other Business Expenses
+Expenses:DEPARTMENT EXPENSES:Food & Beverage,Expense,Other Business Expenses
+Expenses:DEPARTMENT EXPENSES:Food & Beverage:Banquet Food,Expense,Other Business Expenses
+Expenses:DEPARTMENT EXPENSES:Food & Beverage:Bar Supplies,Expense,Other Business Expenses
+Expenses:DEPARTMENT EXPENSES:Food & Beverage:Beer,Expense,Other Business Expenses
+Expenses:DEPARTMENT EXPENSES:Food & Beverage:Cleaning Supplies,Expense,Other Business Expenses
+Expenses:DEPARTMENT EXPENSES:Food & Beverage:Equipment Rental,Expense,Other Business Expenses
+Expenses:DEPARTMENT EXPENSES:Food & Beverage:Food Costs,Expense,Other Business Expenses
+Expenses:DEPARTMENT EXPENSES:Food & Beverage:Kitchen Supplies,Expense,Other Business Expenses
+Expenses:DEPARTMENT EXPENSES:Food & Beverage:Linen Rental,Expense,Other Business Expenses
+Expenses:DEPARTMENT EXPENSES:Food & Beverage:Liquor,Expense,Other Business Expenses
+Expenses:DEPARTMENT EXPENSES:Food & Beverage:Other Beverage,Expense,Other Business Expenses
+Expenses:DEPARTMENT EXPENSES:Food & Beverage:Payroll Taxes- F&B,Expense,Payroll Expenses
+Expenses:DEPARTMENT EXPENSES:Food & Beverage:Wages- Banquet,Expense,Payroll Expenses
+Expenses:DEPARTMENT EXPENSES:Food & Beverage:Wages- Bar/Server,Expense,Payroll Expenses
+Expenses:DEPARTMENT EXPENSES:Food & Beverage:Wages- Cook,Expense,Payroll Expenses
+Expenses:DEPARTMENT EXPENSES:Food & Beverage:Wages- F&B Manager,Expense,Payroll Expenses
+Expenses:DEPARTMENT EXPENSES:Food & Beverage:Wages- Holiday F&B,Expense,Payroll Expenses
+Expenses:DEPARTMENT EXPENSES:Food & Beverage:Wages- Tips Clearing,Expense,Payroll Expenses
+Expenses:DEPARTMENT EXPENSES:Food & Beverage:Wages - Overtime F&B,Expense,Payroll Expenses
+Expenses:DEPARTMENT EXPENSES:Food & Beverage:Wages - Vacation Rooms (F&B),Expense,Payroll Expenses
+Expenses:DEPARTMENT EXPENSES:Food & Beverage:Wine,Expense,Other Business Expenses
+Expenses:DEPARTMENT EXPENSES:Meeting Room Expenses,Expense,Other Business Expenses
+Expenses:DEPARTMENT EXPENSES:Meeting Room Expenses:Equipment,Expense,Other Business Expenses
+Expenses:DEPARTMENT EXPENSES:Meeting Room Expenses:Food & Beverages,Expense,Other Business Expenses
+Expenses:DEPARTMENT EXPENSES:Room Expenses,Expense,Other Business Expenses
+Expenses:DEPARTMENT EXPENSES:Room Expenses:Payroll Taxes Rooms,Expense,Payroll Tax Expenses
+Expenses:DEPARTMENT EXPENSES:Room Expenses:Room Costs Other,Expense,Other Business Expenses
+Expenses:DEPARTMENT EXPENSES:Room Expenses:Room Costs Other:Cleaning Supplies,Expense,Supplies & Materials
+Expenses:DEPARTMENT EXPENSES:Room Expenses:Room Costs Other:Complimentary Guest Amenities,Expense,Supplies & Materials
+Expenses:DEPARTMENT EXPENSES:Room Expenses:Room Costs Other:Contract Cleaning,Expense,Supplies & Materials
+Expenses:DEPARTMENT EXPENSES:Room Expenses:Room Costs Other:Guest Room Supplies,Expense,Supplies & Materials
+Expenses:DEPARTMENT EXPENSES:Room Expenses:Room Costs Other:Kitchen Supplies,Expense,Supplies & Materials
+Expenses:DEPARTMENT EXPENSES:Room Expenses:Room Costs Other:Laundry Chemicals,Expense,Supplies & Materials
+Expenses:DEPARTMENT EXPENSES:Room Expenses:Room Costs Other:Linen Expense,Expense,Supplies & Materials
+Expenses:DEPARTMENT EXPENSES:Room Expenses:Room Costs Other:Room Equipment,Expense,Supplies & Materials
+Expenses:DEPARTMENT EXPENSES:Room Expenses:Room Costs Other:Travel Agent Commissions,Expense,Other Business Expenses
+Expenses:DEPARTMENT EXPENSES:Room Expenses:Room Costs Other:TV Cable & Internet,Expense,Utilities
+Expenses:DEPARTMENT EXPENSES:Room Expenses:Room Costs Other:Uniforms,Expense,Supplies & Materials
+Expenses:DEPARTMENT EXPENSES:Room Expenses:Room Payroll Costs,Expense,Payroll Wage Expenses
+Expenses:DEPARTMENT EXPENSES:Room Expenses:Wages- Holiday Rooms,Expense,Payroll Expenses
+Expenses:DEPARTMENT EXPENSES:Room Expenses:Wages Front Desk,Expense,Payroll Expenses
+Expenses:DEPARTMENT EXPENSES:Room Expenses:Wages Houseman,Expense,Payroll Expenses
+Expenses:DEPARTMENT EXPENSES:Room Expenses:Wages Laundry,Expense,Payroll Expenses
+Expenses:DEPARTMENT EXPENSES:Room Expenses:Wages Operations Manager,Expense,Payroll Expenses
+Expenses:DEPARTMENT EXPENSES:Room Expenses:Wages Security,Expense,Payroll Expenses
+Expenses:DEPARTMENT EXPENSES:Room Expenses:WagesHousekeeping,Expense,Payroll Expenses
+Expenses:DEPARTMENT EXPENSES:Room Expenses:WagesOT Rooms,Expense,Payroll Expenses
+Expenses:DEPARTMENT EXPENSES:Room Expenses:WagesVacation/Sick Rooms,Expense,Payroll Expenses
+Expenses:DEPARTMENT EXPENSES:Telecommunciations,Expense,Communication
+Expenses:DEPARTMENT EXPENSES:Telecommunciations:Cell Phones,Expense,Communication
+Expenses:DEPARTMENT EXPENSES:Telecommunciations:MiscellaneousTelephone,Expense,Communication
+Expenses:DEPARTMENT EXPENSES:Telecommunciations:Phone Equip. Maint. Contract,Expense,Communication
+Expenses:DEPARTMENT EXPENSES:Telecommunciations:Telephone Local/LD,Expense,Communication
+Expenses:UNDISTRIBUTED EXPENSES,Expense,Office/General Administrative Expenses
+Expenses:UNDISTRIBUTED EXPENSES:Admin & General,Expense,Office/General Administrative Expenses
+Expenses:UNDISTRIBUTED EXPENSES:Admin & General:Admin & General Payroll,Expense,Payroll Expenses
+Expenses:UNDISTRIBUTED EXPENSES:Admin & General:Admin & General Payroll:Assistance GM,Expense,Payroll Expenses
+Expenses:UNDISTRIBUTED EXPENSES:Admin & General:Admin & General Payroll:Health Insurance,Expense,Payroll Expenses
+Expenses:UNDISTRIBUTED EXPENSES:Admin & General:Admin & General Payroll:Insurance Other,Expense,Payroll Expenses
+Expenses:UNDISTRIBUTED EXPENSES:Admin & General:Admin & General Payroll:Payroll Processing Fee,Expense,Payroll Expenses
+Expenses:UNDISTRIBUTED EXPENSES:Admin & General:Admin & General Payroll:Payroll Taxes A&G,Expense,Payroll Tax Expenses
+Expenses:UNDISTRIBUTED EXPENSES:Admin & General:Admin & General Payroll:Wages- Task Force Manager,Expense,Payroll Expenses
+Expenses:UNDISTRIBUTED EXPENSES:Admin & General:Admin & General Payroll:Wages Bonus,Expense,Payroll Expenses
+Expenses:UNDISTRIBUTED EXPENSES:Admin & General:Admin & General Payroll:Wages General Manager,Expense,Payroll Expenses
+Expenses:UNDISTRIBUTED EXPENSES:Admin & General:Admin & General Payroll:WagesVacation/Sick A&G,Expense,Payroll Expenses
+Expenses:UNDISTRIBUTED EXPENSES:Admin & General-Other Expenses,Expense,Office/General Administrative Expenses
+Expenses:UNDISTRIBUTED EXPENSES:Admin & General-Other Expenses:Accounting Fee,Expense,Office/General Administrative Expenses
+Expenses:UNDISTRIBUTED EXPENSES:Admin & General-Other Expenses:Automobile Expense,Expense,Office/General Administrative Expenses
+Expenses:UNDISTRIBUTED EXPENSES:Admin & General-Other Expenses:Bad Debts  Chargebacks,Expense,Office/General Administrative Expenses
+Expenses:UNDISTRIBUTED EXPENSES:Admin & General-Other Expenses:Bank Service Charges,Expense,Office/General Administrative Expenses
+Expenses:UNDISTRIBUTED EXPENSES:Admin & General-Other Expenses:Bottled Water - In Room,Expense,Office/General Administrative Expenses
+Expenses:UNDISTRIBUTED EXPENSES:Admin & General-Other Expenses:Business Taxes & Licenses,Expense,Office/General Administrative Expenses
+Expenses:UNDISTRIBUTED EXPENSES:Admin & General-Other Expenses:Cash Over/Short,Expense,Office/General Administrative Expenses
+Expenses:UNDISTRIBUTED EXPENSES:Admin & General-Other Expenses:Conference,Expense,Office/General Administrative Expenses
+Expenses:UNDISTRIBUTED EXPENSES:Admin & General-Other Expenses:Credit Card Over/Short,Expense,Office/General Administrative Expenses
+Expenses:UNDISTRIBUTED EXPENSES:Admin & General-Other Expenses:Credit Card Processing Fees,Expense,Office/General Administrative Expenses
+"Expenses:UNDISTRIBUTED EXPENSES:Admin & General-Other Expenses:Dues, Fees & Subscriptions",Expense,Office/General Administrative Expenses
+Expenses:UNDISTRIBUTED EXPENSES:Admin & General-Other Expenses:Employee Appreciation,Expense,Office/General Administrative Expenses
+Expenses:UNDISTRIBUTED EXPENSES:Admin & General-Other Expenses:Guest Assistance Fees- Hilton,Expense,Office/General Administrative Expenses
+Expenses:UNDISTRIBUTED EXPENSES:Admin & General-Other Expenses:Help Wanted Ads,Expense,Office/General Administrative Expenses
+Expenses:UNDISTRIBUTED EXPENSES:Admin & General-Other Expenses:Meals & Entertainment,Expense,Office/General Administrative Expenses
+Expenses:UNDISTRIBUTED EXPENSES:Admin & General-Other Expenses:Miscellaneous Expense,Expense,Office/General Administrative Expenses
+Expenses:UNDISTRIBUTED EXPENSES:Admin & General-Other Expenses:Office Supplies,Expense,Office/General Administrative Expenses
+Expenses:UNDISTRIBUTED EXPENSES:Admin & General-Other Expenses:Postage,Expense,Office/General Administrative Expenses
+Expenses:UNDISTRIBUTED EXPENSES:Admin & General-Other Expenses:Sundry Shop Supplies,Expense,Office/General Administrative Expenses
+Expenses:UNDISTRIBUTED EXPENSES:Admin & General-Other Expenses:Training,Expense,Office/General Administrative Expenses
+Expenses:UNDISTRIBUTED EXPENSES:Admin & General-Other Expenses:Travelair / Mileage / Lodging,Expense,Office/General Administrative Expenses
+Expenses:UNDISTRIBUTED EXPENSES:Repairs & Maintenance,Expense,Repair & Maintenance
+Expenses:UNDISTRIBUTED EXPENSES:Repairs & Maintenance:Repairs & Maintenance Other,Expense,Repair & Maintenance
+Expenses:UNDISTRIBUTED EXPENSES:Repairs & Maintenance:Repairs & Maintenance Other:Appliances,Expense,Repair & Maintenance
+Expenses:UNDISTRIBUTED EXPENSES:Repairs & Maintenance:Repairs & Maintenance Other:Building Repairs,Expense,Repair & Maintenance
+Expenses:UNDISTRIBUTED EXPENSES:Repairs & Maintenance:Repairs & Maintenance Other:Carpentry,Expense,Repair & Maintenance
+Expenses:UNDISTRIBUTED EXPENSES:Repairs & Maintenance:Repairs & Maintenance Other:Fire Protection,Expense,Repair & Maintenance
+Expenses:UNDISTRIBUTED EXPENSES:Repairs & Maintenance:Repairs & Maintenance Other:Furniture/ Beds,Expense,Repair & Maintenance
+Expenses:UNDISTRIBUTED EXPENSES:Repairs & Maintenance:Repairs & Maintenance Other:Guest Room Repairs,Expense,Repair & Maintenance
+Expenses:UNDISTRIBUTED EXPENSES:Repairs & Maintenance:Repairs & Maintenance Other:HVAC,Expense,Repair & Maintenance
+Expenses:UNDISTRIBUTED EXPENSES:Repairs & Maintenance:Repairs & Maintenance Other:Light Bulbs,Expense,Repair & Maintenance
+Expenses:UNDISTRIBUTED EXPENSES:Repairs & Maintenance:Repairs & Maintenance Other:Maintenance Tools/Supplies,Expense,Repair & Maintenance
+Expenses:UNDISTRIBUTED EXPENSES:Repairs & Maintenance:Repairs & Maintenance Other:Miscellaneous Repairs,Expense,Repair & Maintenance
+Expenses:UNDISTRIBUTED EXPENSES:Repairs & Maintenance:Repairs & Maintenance Other:Painting Supplies,Expense,Repair & Maintenance
+Expenses:UNDISTRIBUTED EXPENSES:Repairs & Maintenance:Repairs & Maintenance Other:Plumbing & Electrical,Expense,Repair & Maintenance
+Expenses:UNDISTRIBUTED EXPENSES:Repairs & Maintenance:Repairs & Maintenance Other:Service Contract- Pest Control,Expense,Repair & Maintenance
+Expenses:UNDISTRIBUTED EXPENSES:Repairs & Maintenance:Repairs & Maintenance Other:Service Contract Elevator,Expense,Repair & Maintenance
+Expenses:UNDISTRIBUTED EXPENSES:Repairs & Maintenance:Repairs & Maintenance Other:Service Contract Landscape,Expense,Repair & Maintenance
+Expenses:UNDISTRIBUTED EXPENSES:Repairs & Maintenance:Repairs & Maintenance Other:Service Contract Laundry,Expense,Repair & Maintenance
+Expenses:UNDISTRIBUTED EXPENSES:Repairs & Maintenance:Repairs & Maintenance Other:Service Contract Trash,Expense,Repair & Maintenance
+Expenses:UNDISTRIBUTED EXPENSES:Repairs & Maintenance:Repairs & Maintenance Other:Service Contracts Computer,Expense,Repair & Maintenance
+Expenses:UNDISTRIBUTED EXPENSES:Repairs & Maintenance:Repairs & Maintenance Other:Service Contracts Other,Expense,Repair & Maintenance
+Expenses:UNDISTRIBUTED EXPENSES:Repairs & Maintenance:Repairs & Maintenance Other:Snow Removal,Expense,Repair & Maintenance
+Expenses:UNDISTRIBUTED EXPENSES:Repairs & Maintenance:Repairs & Maintenance Other:Swimming Pool,Expense,Repair & Maintenance
+Expenses:UNDISTRIBUTED EXPENSES:Repairs & Maintenance:Repairs & Maintenance Payroll,Expense,Repair & Maintenance
+Expenses:UNDISTRIBUTED EXPENSES:Repairs & Maintenance:Repairs & Maintenance Payroll:Payroll Taxes Maint,Expense,Repair & Maintenance
+Expenses:UNDISTRIBUTED EXPENSES:Repairs & Maintenance:Repairs & Maintenance Payroll:Wages- Vacation Maint,Expense,Repair & Maintenance
+Expenses:UNDISTRIBUTED EXPENSES:Repairs & Maintenance:Repairs & Maintenance Payroll:Wages Holiday Maint,Expense,Repair & Maintenance
+Expenses:UNDISTRIBUTED EXPENSES:Repairs & Maintenance:Repairs & Maintenance Payroll:WagesMaintenance,Expense,Repair & Maintenance
+Expenses:UNDISTRIBUTED EXPENSES:Repairs & Maintenance:Repairs & Maintenance Payroll:WagesOT Maint,Expense,Repair & Maintenance
+Expenses:UNDISTRIBUTED EXPENSES:Sales & Marketing,Expense,Advertising/Promotional
+Expenses:UNDISTRIBUTED EXPENSES:Sales & Marketing:Sales & Marketing- Other,Expense,Advertising/Promotional
+Expenses:UNDISTRIBUTED EXPENSES:Sales & Marketing:Sales & Marketing- Other:Advertising / Public relations,Expense,Advertising/Promotional
+Expenses:UNDISTRIBUTED EXPENSES:Sales & Marketing:Sales & Marketing- Other:Advertising/National,Expense,Advertising/Promotional
+Expenses:UNDISTRIBUTED EXPENSES:Sales & Marketing:Sales & Marketing- Other:AdvertisingReservation,Expense,Advertising/Promotional
+Expenses:UNDISTRIBUTED EXPENSES:Sales & Marketing:Sales & Marketing- Other:Brand Sales Services,Expense,Advertising/Promotional
+Expenses:UNDISTRIBUTED EXPENSES:Sales & Marketing:Sales & Marketing- Other:Brochures & Fliers,Expense,Advertising/Promotional
+Expenses:UNDISTRIBUTED EXPENSES:Sales & Marketing:Sales & Marketing- Other:Franchise Fees,Expense,Advertising/Promotional
+Expenses:UNDISTRIBUTED EXPENSES:Sales & Marketing:Sales & Marketing- Other:Guest Appreciation,Expense,Advertising/Promotional
+Expenses:UNDISTRIBUTED EXPENSES:Sales & Marketing:Sales & Marketing- Other:Loyalty Program Expense,Expense,Advertising/Promotional
+Expenses:UNDISTRIBUTED EXPENSES:Sales & Marketing:Sales & Marketing- Other:Promotional Supplies,Expense,Advertising/Promotional
+Expenses:UNDISTRIBUTED EXPENSES:Sales & Marketing:Sales & Marketing- Other:Referral Fees,Expense,Advertising/Promotional
+Expenses:UNDISTRIBUTED EXPENSES:Sales & Marketing:Sales & Marketing- Other:Revenue Management,Expense,Advertising/Promotional
+Expenses:UNDISTRIBUTED EXPENSES:Sales & Marketing:Sales & Marketing- Other:Sponsership and Donations,Expense,Advertising/Promotional
+Expenses:UNDISTRIBUTED EXPENSES:Sales & Marketing:Sales & Marketing Payroll,Expense,Payroll Expenses
+Expenses:UNDISTRIBUTED EXPENSES:Sales & Marketing:Sales & Marketing Payroll:Payroll Taxes Sales,Expense,Payroll Tax Expenses
+Expenses:UNDISTRIBUTED EXPENSES:Sales & Marketing:Sales & Marketing Payroll:Wages- Bonus Sales,Expense,Payroll Expenses
+Expenses:UNDISTRIBUTED EXPENSES:Sales & Marketing:Sales & Marketing Payroll:Wages Sales,Expense,Payroll Expenses
+Expenses:UNDISTRIBUTED EXPENSES:Sales & Marketing:Sales & Marketing Payroll:WagesOT Sales,Expense,Payroll Expenses
+Expenses:UNDISTRIBUTED EXPENSES:Sales & Marketing:Sales & Marketing Payroll:WagesVacation/Sick Sales,Expense,Payroll Expenses
+Expenses:UNDISTRIBUTED EXPENSES:STATS,Expense,Other Business Expenses
+Expenses:UNDISTRIBUTED EXPENSES:STATS:Rooms Available,Expense,Other Business Expenses
+Expenses:UNDISTRIBUTED EXPENSES:STATS:Rooms Rented,Expense,Other Business Expenses
+Expenses:UNDISTRIBUTED EXPENSES:STATS:Stat Clearing Account,Expense,Other Business Expenses
+Expenses:UNDISTRIBUTED EXPENSES:Utilities,Expense,Utilities
+Expenses:UNDISTRIBUTED EXPENSES:Utilities:Utilities Electricity,Expense,Utilities
+Expenses:UNDISTRIBUTED EXPENSES:Utilities:Utilities Gas,Expense,Utilities
+Expenses:UNDISTRIBUTED EXPENSES:Utilities:Utilities Water/Sewer,Expense,Utilities
+Ask My Accountant,Other Expense,Other Miscellaneous Expense
+Other Expenses,Other Expense,Other Miscellaneous Expense
+Other Expenses:Capital Expenditures,Other Expense,Other Miscellaneous Expense
+Other Expenses:Extraordinary Expense,Other Expense,Other Miscellaneous Expense
+Other Expenses:Insurance Property & Casualty,Other Expense,Other Miscellaneous Expense
+Other Expenses:Insurance Works Comp,Other Expense,Other Miscellaneous Expense
+Other Expenses:Management Fee,Other Expense,Other Miscellaneous Expense
+Other Expenses:Owner Expense,Other Expense,Other Miscellaneous Expense
+Other Expenses:Taxes Real Property,Other Expense,Other Miscellaneous Expense
