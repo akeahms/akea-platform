@@ -17,7 +17,7 @@ export type Conn = {
   hotel_id: string; tenant_id: string; realm_id: string; company_name: string | null; status: string;
   access_token: string | null; refresh_token: string | null; access_expires_at: string | null; refresh_expires_at: string | null;
 };
-export type Gl = { id: string; number: string; name: string; type: string };
+export type Gl = { id: string; number: string; name: string; type: string; full_name?: string | null; system_key?: string | null };
 export type Line = { gl_account_id: string; debit: number; credit: number; desc: string };
 
 // ------------------------------------------------------------------ OAuth
@@ -75,28 +75,33 @@ export const query = (admin: any, c: Conn, sql: string) => qbo(admin, c, "GET", 
 const r2 = (n: number) => Math.round(n * 100) / 100;
 const CARD = new Set(["visa", "mastercard", "discover", "amex", "ota", "jcb", "diners", "card"]);
 
-/** Night-audit revenue as a balanced journal in Akea account numbers. The guest ledger absorbs the difference
+/** Night-audit revenue as a balanced journal, by account role (each hotel's chart says which account plays each role,
+ *  so renaming or renumbering accounts doesn't break the sync). The guest ledger absorbs the difference
  *  between what was charged and what was paid (guests in house, advance deposits). */
+export const ROLE_LABEL: Record<string, string> = {
+  room_revenue: "room revenue", fnb_revenue: "food & beverage revenue", other_revenue: "other revenue", sales_tax: "sales tax payable",
+  card_clearing: "credit card clearing", cash: "operating cash", ar_direct_bill: "direct bill receivable", guest_ledger: "guest ledger", default_expense: "default expense",
+};
 export function dailyRevenueLines(dm: any, deposits: { source: string; amount: number }[]) {
-  const out: { number: string; debit: number; credit: number; desc: string }[] = [];
-  const cr = (number: string, v: unknown, desc: string) => { const a = r2(Number(v) || 0); if (a > 0) out.push({ number, debit: 0, credit: a, desc }); else if (a < 0) out.push({ number, debit: -a, credit: 0, desc }); };
-  const dr = (number: string, v: number, desc: string) => { const a = r2(v); if (a > 0) out.push({ number, debit: a, credit: 0, desc }); else if (a < 0) out.push({ number, debit: 0, credit: -a, desc }); };
-  cr("4000", dm.room_revenue, "Room revenue");
-  cr("4100", dm.fnb_revenue, "Food & beverage revenue");
-  cr("4200", dm.other_revenue, "Other revenue");
-  cr("2200", dm.tax_total, "Sales & occupancy tax collected");
+  const out: { role: string; debit: number; credit: number; desc: string }[] = [];
+  const cr = (role: string, v: unknown, desc: string) => { const a = r2(Number(v) || 0); if (a > 0) out.push({ role, debit: 0, credit: a, desc }); else if (a < 0) out.push({ role, debit: -a, credit: 0, desc }); };
+  const dr = (role: string, v: number, desc: string) => { const a = r2(v); if (a > 0) out.push({ role, debit: a, credit: 0, desc }); else if (a < 0) out.push({ role, debit: 0, credit: -a, desc }); };
+  cr("room_revenue", dm.room_revenue, "Room revenue");
+  cr("fnb_revenue", dm.fnb_revenue, "Food & beverage revenue");
+  cr("other_revenue", dm.other_revenue, "Other revenue");
+  cr("sales_tax", dm.tax_total, "Sales & occupancy tax collected");
   const by = new Map<string, number>();
   for (const d of deposits) by.set(d.source, (by.get(d.source) || 0) + Number(d.amount || 0));
   for (const [src, amt] of [...by.entries()].sort()) {
     const label = src.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
-    if (CARD.has(src)) dr("1050", amt, `${label} payments`);
-    else if (src === "cash") dr("1000", amt, "Cash payments");
-    else if (src === "direct_bill") dr("1110", amt, "Direct bill (city ledger)");
-    else dr("1050", amt, `${label} payments`);
+    if (CARD.has(src)) dr("card_clearing", amt, `${label} payments`);
+    else if (src === "cash") dr("cash", amt, "Cash payments");
+    else if (src === "direct_bill") dr("ar_direct_bill", amt, "Direct bill (city ledger)");
+    else dr("card_clearing", amt, `${label} payments`);
   }
   const diff = r2(out.reduce((a, l) => a + l.credit - l.debit, 0));
-  if (diff > 0) out.push({ number: "1100", debit: diff, credit: 0, desc: "Guest ledger (charged, not yet paid)" });
-  else if (diff < 0) out.push({ number: "1100", debit: 0, credit: -diff, desc: "Guest ledger (payments ahead of charges)" });
+  if (diff > 0) out.push({ role: "guest_ledger", debit: diff, credit: 0, desc: "Guest ledger (charged, not yet paid)" });
+  else if (diff < 0) out.push({ role: "guest_ledger", debit: 0, credit: -diff, desc: "Guest ledger (payments ahead of charges)" });
   return out;
 }
 
@@ -136,12 +141,16 @@ const TYPE_OK: Record<string, RegExp> = {
 };
 const words = (s: string) => new Set(s.toLowerCase().replace(/&/g, " and ").replace(/[^a-z0-9 ]/g, " ").split(/\s+/).filter((w) => w.length > 2 && !["and", "the", "for"].includes(w)));
 export type QAcct = { qbo_id: string; name: string; full_name: string | null; acct_num: string | null; account_type: string | null };
-/** Suggest a QuickBooks account for each Akea account: same number, then same name, then best word overlap of a compatible type. */
+/** Suggest a QuickBooks account for each Akea account: same number, then same full name (Parent:Child), then same name,
+ *  then best word overlap of a compatible type. */
 export function suggestMap(gls: Gl[], qas: QAcct[]) {
   const out = new Map<string, string>();
   for (const g of gls) {
     const ok = qas.filter((q) => !TYPE_OK[g.type] || TYPE_OK[g.type].test(q.account_type || ""));
-    let hit = ok.find((q) => q.acct_num && q.acct_num === g.number) || ok.find((q) => q.name.trim().toLowerCase() === g.name.trim().toLowerCase());
+    const fn = (g.full_name || "").trim().toLowerCase();
+    let hit = ok.find((q) => q.acct_num && q.acct_num === g.number)
+      || (fn ? ok.find((q) => (q.full_name || "").trim().toLowerCase() === fn) : undefined)
+      || ok.find((q) => q.name.trim().toLowerCase() === g.name.trim().toLowerCase());
     if (!hit) {
       const gw = words(g.name); let best = 0;
       for (const q of ok) {
@@ -192,13 +201,13 @@ export async function syncHotel(admin: any, c: Conn, opts: { yesterday: string; 
   const limit = opts.limit ?? 150;
   const [{ data: s }, { data: gls }, { data: maps }, { data: logs }] = await Promise.all([
     admin.from("qbo_settings").select("*").eq("hotel_id", c.hotel_id).maybeSingle(),
-    admin.from("gl_accounts").select("id,number,name,type").eq("hotel_id", c.hotel_id),    // this hotel's own chart of accounts
+    admin.from("gl_accounts").select("id,number,name,type,full_name,system_key").eq("hotel_id", c.hotel_id),    // this hotel's own chart of accounts
     admin.from("qbo_account_map").select("gl_account_id,qbo_account_id").eq("hotel_id", c.hotel_id),
     admin.from("qbo_sync_log").select("object_type,object_key,status,qbo_id,attempts").eq("hotel_id", c.hotel_id),
   ]);
   const settings = s || { start_date: opts.yesterday, push_daily_revenue: true, push_bills: true, push_payments: true, push_journals: true };
   const start = settings.start_date;
-  const glByNum = new Map<string, Gl>((gls || []).map((g: Gl) => [g.number, g]));
+  const glByRole = new Map<string, Gl>((gls || []).filter((g: Gl) => g.system_key).map((g: Gl) => [g.system_key!, g]));
   const glById = new Map<string, Gl>((gls || []).map((g: Gl) => [g.id, g]));
   const map = new Map<string, string>((maps || []).map((m: any) => [m.gl_account_id, m.qbo_account_id]));
   const log = new Map<string, any>((logs || []).map((l: any) => [`${l.object_type}|${l.object_key}`, l]));
@@ -212,7 +221,7 @@ export async function syncHotel(admin: any, c: Conn, opts: { yesterday: string; 
     log.set(`${t}|${k}`, row);
     counts[status === "synced" ? "synced" : status === "failed" ? "failed" : "needs_mapping"]++;
   }
-  const missingNames = (ids: string[]) => ids.map((id) => { const g = glById.get(id); return g ? `${g.number} ${g.name}` : id; }).join(", ");
+  const missingNames = (ids: string[]) => ids.map((id) => { const g = glById.get(id); return g ? `${g.number} ${g.full_name || g.name}` : `the ${ROLE_LABEL[id] || id} account`; }).join(", ");
   async function push(t: string, k: string, label: string, amount: number, fn: () => Promise<{ missing?: string[]; qboId?: string }>) {
     if (budget-- <= 0) return;
     try {
@@ -236,9 +245,9 @@ export async function syncHotel(admin: any, c: Conn, opts: { yesterday: string; 
       if (!raw.length) continue;
       const total = r2(raw.reduce((a, l) => a + l.credit, 0));
       await push("daily_revenue", dm.business_date, `Night audit ${dm.business_date}`, total, async () => {
-        const absent = raw.filter((l) => !glByNum.get(l.number)).map((l) => l.number);
-        if (absent.length) throw new QboError(`Akea chart of accounts is missing ${absent.join(", ")}`);
-        const lines: Line[] = raw.map((l) => ({ gl_account_id: glByNum.get(l.number)!.id, debit: l.debit, credit: l.credit, desc: l.desc }));
+        const absent = [...new Set(raw.filter((l) => !glByRole.get(l.role)).map((l) => ROLE_LABEL[l.role] || l.role))];
+        if (absent.length) throw new QboError(`This hotel's chart of accounts has no ${absent.join(", ")} account. Add the template accounts in Accounting → Chart of accounts.`);
+        const lines: Line[] = raw.map((l) => ({ gl_account_id: glByRole.get(l.role)!.id, debit: l.debit, credit: l.credit, desc: l.desc }));
         const p = journalPayload(lines, map, dm.business_date, `NA-${dm.business_date.replace(/-/g, "")}`, `Night audit revenue for ${dm.business_date}, sent from Akea`);
         if (p.missing) return { missing: p.missing };
         const j = await qbo(admin, c, "POST", "journalentry", p.payload, await hashId(`rev|${c.hotel_id}|${dm.business_date}|${JSON.stringify(p.payload)}`));
@@ -257,8 +266,8 @@ export async function syncHotel(admin: any, c: Conn, opts: { yesterday: string; 
       if (done("bill", b.id)) continue;
       await push("bill", b.id, `${b.vendors?.name || "Bill"}${b.invoice_no ? " #" + b.invoice_no : ""}`, Number(b.amount), async () => {
         if (!b.vendors) throw new QboError("This bill has no vendor. Add one in Akea, then sync again.");
-        const glId = b.gl_account_id || glByNum.get("6210")?.id;
-        if (!glId || !map.get(glId)) return { missing: [glId || "6210"] };
+        const glId = b.gl_account_id || glByRole.get("default_expense")?.id;
+        if (!glId || !map.get(glId)) return { missing: [glId || "default_expense"] };
         const vid = await ensureVendor(admin, c, b.vendors);
         const p = billPayload(b, vid, map.get(glId)!);
         const j = await qbo(admin, c, "POST", "bill", p, await hashId(`bill|${c.hotel_id}|${b.id}|${JSON.stringify(p)}`));
@@ -279,8 +288,8 @@ export async function syncHotel(admin: any, c: Conn, opts: { yesterday: string; 
           const { data: ba } = await admin.from("bank_accounts").select("gl_account_id").eq("id", b.bank_account_id).maybeSingle();
           bankGl.set(b.bank_account_id, ba?.gl_account_id || null);
         }
-        const glId = (b.bank_account_id && bankGl.get(b.bank_account_id)) || glByNum.get("1000")?.id;
-        if (!glId || !map.get(glId)) return { missing: [glId || "1000"] };
+        const glId = (b.bank_account_id && bankGl.get(b.bank_account_id)) || glByRole.get("cash")?.id;
+        if (!glId || !map.get(glId)) return { missing: [glId || "cash"] };
         const vid = await ensureVendor(admin, c, b.vendors);
         const p = billPaymentPayload(b, vid, billLog.qbo_id, map.get(glId)!);
         const j = await qbo(admin, c, "POST", "billpayment", p, await hashId(`pay|${c.hotel_id}|${b.id}|${JSON.stringify(p)}`));

@@ -6,7 +6,7 @@ import { Card, Pill, Loading, ErrorBox, Empty, useAsync, Modal, HotelSelect, Not
 // QuickBooks Online: each hotel connects to its own QuickBooks company. Akea sends the nightly revenue journal,
 // approved bills (creating vendors as needed), bill payments and manual journal entries; nothing is ever sent twice.
 type QStatus = { hotel_id: string; realm_id: string; company_name: string | null; status: string; last_error: string | null; last_synced_at: string | null; refresh_expires_at: string | null };
-const NEEDED = new Set(["1000", "1050", "1100", "1110", "2200", "4000", "4100", "4200", "6210"]);  // used by the nightly revenue journal and default bill/payment postings
+const NEEDED = new Set(["cash", "card_clearing", "guest_ledger", "ar_direct_bill", "sales_tax", "room_revenue", "fnb_revenue", "other_revenue", "default_expense"]);  // account roles used by the nightly revenue journal and default bill/payment postings
 const TYPE_LABEL: Record<string, string> = { daily_revenue: "Night audit revenue", bill: "Bill", bill_payment: "Bill payment", journal: "Journal entry" };
 const BANNER: Record<string, [string, "good" | "bad" | "info"]> = {
   connected: ["QuickBooks is connected. Check the account mapping below, then press Sync now (or wait for tonight's automatic run).", "good"],
@@ -33,13 +33,15 @@ export function QuickBooks({ ctx }: { ctx: Ctx }) {
   const data = useAsync(async () => {
     if (!c) return null;
     const [gls, qas, maps, settings, log] = await Promise.all([
-      db.get<any>(`gl_accounts?select=id,number,name,type&hotel_id=eq.${hotelId}&active=eq.true&order=number.asc`),
+      db.get<any>(`gl_accounts?select=id,number,name,full_name,type,active,system_key&hotel_id=eq.${hotelId}&order=number.asc`),
       db.get<any>(`qbo_accounts?select=qbo_id,name,full_name,acct_num,account_type&hotel_id=eq.${hotelId}&order=full_name.asc`),
       db.get<any>(`qbo_account_map?select=gl_account_id,qbo_account_id&hotel_id=eq.${hotelId}`),
       db.get<any>(`qbo_settings?select=*&hotel_id=eq.${hotelId}`),
       db.get<any>(`qbo_sync_log?select=*&hotel_id=eq.${hotelId}&order=updated_at.desc&limit=200`),
     ]);
-    return { gls, qas, map: new Map<string, string>(maps.map((m: any) => [m.gl_account_id, m.qbo_account_id] as [string, string])), settings: settings[0] || null, log };
+    const map = new Map<string, string>(maps.map((m: any) => [m.gl_account_id, m.qbo_account_id] as [string, string]));
+    // inactive accounts are listed only if they were mapped before (their history may still need to go out)
+    return { gls: gls.filter((g: any) => g.active || map.has(g.id)), qas, map, settings: settings[0] || null, log };
   }, [hotelId, c?.realm_id, c?.last_synced_at]);
 
   async function call(action: string, extra: Record<string, unknown> = {}) { return callFunction<any>("quickbooks", { action, hotel_id: hotelId, ...extra }); }
@@ -72,7 +74,7 @@ export function QuickBooks({ ctx }: { ctx: Ctx }) {
   }
 
   const d = data.data;
-  const unmappedNeeded = useMemo(() => (d ? d.gls.filter((g: any) => NEEDED.has(g.number) && !d.map.get(g.id)) : []), [d]);
+  const unmappedNeeded = useMemo(() => (d ? d.gls.filter((g: any) => NEEDED.has(g.system_key) && !d.map.get(g.id)) : []), [d]);
   const problems = (d?.log || []).filter((l: any) => l.status !== "synced");
   const shownLog = logView === "problems" ? problems : d?.log || [];
   const pill: [string, "good" | "warn" | "bad" | "mute"] | null = c ? (c.status === "active" ? ["Connected", "good"] : c.status === "needs_relogin" ? ["Sign in to QuickBooks again", "bad"] : ["Sync problem", "bad"]) : null;
@@ -103,7 +105,7 @@ export function QuickBooks({ ctx }: { ctx: Ctx }) {
                     {c.refresh_expires_at && <div className="muted">Connection renews itself; it lapses only if unused until {fmtDate(c.refresh_expires_at.slice(0, 10))}</div>}
                   </div>
                   {c.last_error && <Notice kind={c.status === "active" ? "info" : "bad"}>{c.last_error}</Notice>}
-                  {!!unmappedNeeded.length && <Notice kind="info">Map {unmappedNeeded.length} account{unmappedNeeded.length === 1 ? "" : "s"} used by the nightly revenue journal before the first sync: {unmappedNeeded.map((g: any) => g.number).join(", ")}.</Notice>}
+                  {!!unmappedNeeded.length && <Notice kind="info">Map {unmappedNeeded.length} account{unmappedNeeded.length === 1 ? "" : "s"} used by the nightly revenue journal before the first sync: {unmappedNeeded.map((g: any) => `${g.number} ${g.name}`).join(", ")}.</Notice>}
                   <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                     {canSync && c.status !== "needs_relogin" && <button className="btn sm pri" disabled={!!busy} onClick={sync}>{busy === "sync" ? "Sending…" : "Sync now"}</button>}
                     {canAdmin && c.status === "needs_relogin" && <button className="btn sm pri" disabled={!!busy} onClick={connect}>Reconnect</button>}
@@ -124,10 +126,10 @@ export function QuickBooks({ ctx }: { ctx: Ctx }) {
                       const v = d.map.get(g.id) || "";
                       return (
                         <tr key={g.id}>
-                          <td className="small"><b>{g.number}</b> {g.name}{NEEDED.has(g.number) && <span title="Used by the nightly revenue journal" style={{ color: "var(--accent)" }}> ★</span>}</td>
+                          <td className="small"><b>{g.number}</b> {g.full_name || g.name}{!g.active && " (Inactive)"}{NEEDED.has(g.system_key) && <span title="Used by the nightly revenue journal" style={{ color: "var(--accent)" }}> ★</span>}</td>
                           <td style={{ minWidth: 220 }}>
                             <select aria-label={`QuickBooks account for ${g.number} ${g.name}`} value={v} disabled={!canAdmin} onChange={(e) => setMap(g.id, e.target.value)}
-                              style={!v && NEEDED.has(g.number) ? { borderColor: "var(--bad)" } : undefined}>
+                              style={!v && NEEDED.has(g.system_key) ? { borderColor: "var(--bad)" } : undefined}>
                               <option value="">Not mapped</option>
                               {d.qas.map((q: any) => <option key={q.qbo_id} value={q.qbo_id}>{q.acct_num ? `${q.acct_num} · ` : ""}{q.full_name || q.name} ({q.account_type})</option>)}
                             </select>

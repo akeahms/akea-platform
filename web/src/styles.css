@@ -123,6 +123,9 @@ svg .gl { stroke: var(--line); }
 .btn.pri:hover { filter: brightness(1.07); }
 .btn.sm { padding: 4px 12px; min-height: 32px; font-size: 13px; }
 .btn.wide { width: 100%; }
+.btn.danger { color: var(--bad); border-color: var(--bad); }
+.btn.danger:hover { background: var(--bad-soft); }
+tr.muted td { color: var(--fg-3); }
 .btn[disabled] { opacity: .55; cursor: not-allowed; }
 .link { border: 0; background: none; color: var(--accent); font-weight: 600; cursor: pointer; padding: 4px 0; }
 select, input:not([type=checkbox]):not([type=color]) { background: var(--surface); border: 1px solid var(--line-strong); border-radius: 9px; padding: 8px 11px; min-height: 40px; font-size: 14px; }

@@ -2,11 +2,12 @@ import React, { useMemo, useRef, useState } from "react";
 import { db, storage, callFunction } from "../lib/sb";
 import { Ctx, usd, fmtDate, todayIn, addDays, periodRange, Period, yesterday, pct } from "../lib/app";
 import { PageHead, Card, Pill, Loading, ErrorBox, Empty, useAsync, Modal, Field, HotelSelect, Notice, SampleBadge, Seg, Tabs, downloadFile, toCsv, Kpi } from "../ui";
-import { readBankStatement, documentText, BankParse } from "../lib/parse";
+import { readBankStatement, documentText, BankParse, parseCsv } from "../lib/parse";
 import { extractInvoice } from "../lib/extract";
 import { QuickBooks } from "./quickbooks";
 
-type Gl = { id: string; hotel_id: string | null; number: string; name: string; type: string; section: string | null; active: boolean };
+type Gl = { id: string; hotel_id: string | null; number: string; name: string; full_name: string; type: string; section: string | null; active: boolean;
+  parent_id: string | null; qbo_type: string | null; detail_type: string | null; system_key: string | null; template_id: string | null };
 type Vendor = { id: string; name: string; dba: string | null; category: string | null; contact_name: string | null; email: string | null; phone: string | null; address: string | null;
   payment_terms: string | null; default_gl: string | null; remit_method: string; w9_on_file: boolean; tax_id_last4: string | null; is_1099: boolean; status: string; notes: string | null; data_source: string };
 type Bill = { id: string; hotel_id: string; vendor_id: string | null; po_id: string | null; invoice_no: string | null; invoice_date: string | null; due_date: string | null; amount: number;
@@ -22,20 +23,25 @@ const sanitize = (n: string) => n.replace(/[^\w.\- ]+/g, "_");
 function useLookups(ctx: Ctx) {
   return useAsync(async () => {
     const [gl, vendors] = await Promise.all([
-      db.get<Gl>(`gl_accounts?select=id,hotel_id,number,name,type,section,active&tenant_id=eq.${ctx.tenant.id}&order=number.asc`),
+      db.get<Gl>(`gl_accounts?select=id,hotel_id,number,name,full_name,type,section,active,parent_id,qbo_type,detail_type,system_key,template_id&tenant_id=eq.${ctx.tenant.id}&order=number.asc`),
       db.get<Vendor>(`vendors?select=*&tenant_id=eq.${ctx.tenant.id}&order=name.asc`),
     ]);
     return { gl, vendors };
   }, [ctx.tenant.id]);
 }
-const glLabel = (g?: Gl) => (g ? `${g.number} · ${g.name}` : "—");
+const glLabel = (g?: Gl) => (g ? `${g.number} · ${g.full_name || g.name}${g.active ? "" : " (Inactive)"}` : "—");
 // Each hotel has its own chart of accounts (hotel_id = that hotel); hotel_id = null is the company template.
 const glOf = (gl: Gl[] | undefined, hotelId: string | null | undefined) => (gl || []).filter((g) => (hotelId ? g.hotel_id === hotelId : !g.hotel_id));
-/** The hotel's own account matching an id (a template default such as a vendor's default account maps by number). */
+/** Accounts that can be picked for new entries: active ones (plus the one already chosen, so an old record still shows its account). */
+const glPick = (gl: Gl[] | undefined, hotelId: string | null | undefined, current?: string | null) =>
+  glOf(gl, hotelId).filter((g) => g.active || g.id === current).sort((a, b) => a.full_name.localeCompare(b.full_name));
+/** The hotel's own account matching an id (a template default such as a vendor's default account maps through the template link or the name). */
 const ownGl = (gl: Gl[] | undefined, id: string | null | undefined, hotelId: string) => {
   const g = (gl || []).find((x) => x.id === id);
   if (!g) return "";
-  return g.hotel_id === hotelId ? g.id : (gl || []).find((x) => x.hotel_id === hotelId && x.number === g.number)?.id || "";
+  if (g.hotel_id === hotelId) return g.id;
+  const mine = (gl || []).find((x) => x.hotel_id === hotelId && (x.template_id === g.id || (g.system_key && x.system_key === g.system_key) || x.full_name.toLowerCase() === g.full_name.toLowerCase()));
+  return mine && mine.active ? mine.id : "";
 };
 async function openFile(path: string) {
   const url = await storage.signedUrl("vault", path, 120);
@@ -214,7 +220,7 @@ function BillForm({ ctx, vendors, gl, hotelId, onClose }: { ctx: Ctx; vendors: V
         <Field label="Due date" id="bDue"><input id="bDue" type="date" value={f.due_date || ""} onChange={(e) => setF({ ...f, due_date: e.target.value })} /></Field>
         <Field label="Expense account" id="bG">
           <select id="bG" value={f.gl_account_id} onChange={(e) => setF({ ...f, gl_account_id: e.target.value })}>
-            <option value="">Vendor default</option>{glOf(gl, f.hotel_id).filter((g) => g.type === "expense" || g.type === "asset").map((g) => <option key={g.id} value={g.id}>{glLabel(g)}</option>)}
+            <option value="">Vendor default</option>{glPick(gl, f.hotel_id, f.gl_account_id).filter((g) => g.type === "expense" || g.type === "asset").map((g) => <option key={g.id} value={g.id}>{glLabel(g)}</option>)}
           </select>
         </Field>
         <Field label="Description" id="bDesc" span><input id="bDesc" value={f.description} onChange={(e) => setF({ ...f, description: e.target.value })} /></Field>
@@ -320,7 +326,7 @@ export function Vendors({ ctx }: { ctx: Ctx }) {
             <Field label="Pays by" id="vRem"><select id="vRem" value={edit.remit_method} onChange={(e) => setEdit({ ...edit, remit_method: e.target.value })}>
               <option value="ach">ACH</option><option value="check">Check</option><option value="card">Card</option><option value="wire">Wire</option><option value="autopay">Autopay</option></select></Field>
             <Field label="Default expense account" id="vGl"><select id="vGl" value={edit.default_gl || ""} onChange={(e) => setEdit({ ...edit, default_gl: e.target.value || null })}>
-              <option value="">None</option>{glOf(lk.data.gl, null).filter((g) => g.type === "expense").map((g) => <option key={g.id} value={g.id}>{glLabel(g)}</option>)}</select></Field>
+              <option value="">None</option>{glPick(lk.data.gl, null, edit.default_gl).filter((g) => g.type === "expense").map((g) => <option key={g.id} value={g.id}>{glLabel(g)}</option>)}</select></Field>
             <Field label="Tax ID · last 4 digits" id="vTax"><input id="vTax" maxLength={4} inputMode="numeric" value={edit.tax_id_last4 || ""} onChange={(e) => setEdit({ ...edit, tax_id_last4: e.target.value.replace(/\D/g, "") || null })} /></Field>
             <Field label="Status" id="vSt"><select id="vSt" value={edit.status} onChange={(e) => setEdit({ ...edit, status: e.target.value })}><option value="active">Active</option><option value="inactive">Inactive</option></select></Field>
           </div>
@@ -423,7 +429,7 @@ export function Purchasing({ ctx }: { ctx: Ctx }) {
                   <td><input aria-label="Item" value={l.item} onChange={(e) => set("item", e.target.value)} style={{ width: "100%" }} /></td>
                   <td><input aria-label="Quantity" type="number" min="0" step="1" value={l.qty} onChange={(e) => set("qty", e.target.value)} style={{ width: 70 }} /></td>
                   <td><input aria-label="Unit cost" type="number" min="0" step="0.01" value={l.unit_cost} onChange={(e) => set("unit_cost", e.target.value)} style={{ width: 100 }} /></td>
-                  <td><select aria-label="Account" value={l.gl_account_id} onChange={(e) => set("gl_account_id", e.target.value)}><option value="">—</option>{glOf(lk.data!.gl, form.hotel_id).filter((g) => g.type === "expense").map((g) => <option key={g.id} value={g.id}>{glLabel(g)}</option>)}</select></td>
+                  <td><select aria-label="Account" value={l.gl_account_id} onChange={(e) => set("gl_account_id", e.target.value)}><option value="">—</option>{glPick(lk.data!.gl, form.hotel_id, l.gl_account_id).filter((g) => g.type === "expense").map((g) => <option key={g.id} value={g.id}>{glLabel(g)}</option>)}</select></td>
                   <td className="n">{usd(Number(l.qty || 0) * Number(l.unit_cost || 0), 2)}</td>
                   <td>{form.lines.length > 1 && <button className="btn sm" onClick={() => setForm({ ...form, lines: form.lines.filter((_: any, j: number) => j !== i) })} aria-label="Remove line">×</button>}</td>
                 </tr>
@@ -609,13 +615,13 @@ export function Banking({ ctx }: { ctx: Ctx }) {
           </table></div>
         </Modal>
       )}
-      {matching && <ResolveModal t={matching} expected={expected.data || []} gl={glOf(lk.data?.gl, matching.hotel_id)} onClose={() => setMatching(null)} act={act} />}
+      {matching && <ResolveModal t={matching} expected={expected.data || []} gl={glPick(lk.data?.gl, matching.hotel_id)} onClose={() => setMatching(null)} act={act} />}
       {addAcct && (
         <Modal title="Add bank account" onClose={() => setAddAcct(null)} onSubmit={async (e) => {
           e.preventDefault();
           try {
             if (addAcct.last4 && !/^\d{4}$/.test(addAcct.last4)) throw new Error("Enter only the last 4 digits of the account number.");
-            const gl = glOf(lk.data?.gl, addAcct.hotel_id).find((g) => g.number === (addAcct.kind === "payroll" ? "1010" : "1000"));
+            const gl = glOf(lk.data?.gl, addAcct.hotel_id).find((g) => g.system_key === (addAcct.kind === "payroll" ? "payroll_cash" : "cash"));
             await db.insert("bank_accounts", { ...addAcct, tenant_id: ctx.tenant.id, last4: addAcct.last4 || null, gl_account_id: gl?.id || null }, "id");
             setAddAcct(null); accts.reload();
           } catch (err: any) { setMsg({ kind: "bad", text: err.message }); setAddAcct(null); }
@@ -782,7 +788,8 @@ function BudgetEditor({ ctx }: { ctx: Ctx }) {
       setDraft({}); setMsg({ kind: "good", text: `${rows.length} budget cells saved.` }); q.reload();
     } catch (e: any) { setMsg({ kind: "bad", text: e.message }); }
   }
-  const accts = glOf(lk.data?.gl, hotelId).filter((g) => g.type === "expense");
+  // active expense accounts, plus inactive ones that already have budget figures this year
+  const accts = glOf(lk.data?.gl, hotelId).filter((g) => g.type === "expense" && (g.active || (q.data || []).some((r: any) => r.account_id === g.id)));
   return (
     <>
       <div className="toolbar"><HotelSelect hotels={operating} value={hotelId} onChange={(v) => { setHotelId(v); setDraft({}); }} /><span className="small muted">{year} operating expense budget · rooms revenue budget comes from the daily budget</span>
@@ -797,7 +804,7 @@ function BudgetEditor({ ctx }: { ctx: Ctx }) {
               const yr = months.reduce((s, m) => s + Number(val(a.id, m) || 0), 0);
               return (
                 <tr key={a.id}>
-                  <td className="nowrap small"><b>{a.number}</b> {a.name}</td>
+                  <td className="nowrap small"><b>{a.number}</b> {a.name}{!a.active && " (Inactive)"}</td>
                   {months.map((m) => <td key={m} className="n"><input aria-label={`${a.name} ${m}`} className="cell-in" inputMode="decimal" disabled={!canEdit} value={val(a.id, m) ? String(Math.round(Number(val(a.id, m)))) : ""}
                     onChange={(e) => setDraft({ ...draft, [`${a.id}|${m}`]: e.target.value.replace(/[^\d.]/g, "") })} /></td>)}
                   <td className="n"><b>{usd(yr)}</b></td>
@@ -864,7 +871,7 @@ function Journal({ ctx }: { ctx: Ctx }) {
               const set = (k: string, v: any) => setForm({ ...form, lines: form.lines.map((x: any, j: number) => (j === i ? { ...x, [k]: v } : x)) });
               return (
                 <tr key={i}>
-                  <td><select aria-label="Account" value={l.account_id} onChange={(e) => set("account_id", e.target.value)}><option value="">Choose…</option>{glOf(lk.data!.gl, hotelId).map((g) => <option key={g.id} value={g.id}>{glLabel(g)}</option>)}</select></td>
+                  <td><select aria-label="Account" value={l.account_id} onChange={(e) => set("account_id", e.target.value)}><option value="">Choose…</option>{glPick(lk.data!.gl, hotelId, l.account_id).map((g) => <option key={g.id} value={g.id}>{glLabel(g)}</option>)}</select></td>
                   <td><input aria-label="Debit" type="number" step="0.01" min="0" value={l.debit} onChange={(e) => set("debit", e.target.value)} style={{ width: 110 }} /></td>
                   <td><input aria-label="Credit" type="number" step="0.01" min="0" value={l.credit} onChange={(e) => set("credit", e.target.value)} style={{ width: 110 }} /></td>
                   <td><input aria-label="Line memo" value={l.memo || ""} onChange={(e) => set("memo", e.target.value)} /></td>
@@ -878,21 +885,78 @@ function Journal({ ctx }: { ctx: Ctx }) {
   );
 }
 
+// QuickBooks account types, in the order QuickBooks lists them
+const QBO_TYPES = ["Bank", "Accounts receivable (A/R)", "Other Current Asset", "Fixed Asset", "Other Asset", "Accounts payable (A/P)", "Credit Card",
+  "Other Current Liability", "Long Term Liability", "Equity", "Income", "Other Income", "Cost of Goods Sold", "Expense", "Other Expense"];
+const qboOrder = (t: string | null) => { const i = QBO_TYPES.findIndex((x) => x.toLowerCase() === (t || "").toLowerCase()); return i < 0 ? 99 : i; };
+type GlStatus = { id: string; uses: number; children: number; balance: number; pending: number };
+/** Accounts in tree order (parents first, children under them), with their depth. */
+function glTree(list: Gl[]) {
+  const kids = new Map<string | null, Gl[]>();
+  const ids = new Set(list.map((g) => g.id));
+  for (const g of list) { const p = g.parent_id && ids.has(g.parent_id) ? g.parent_id : null; kids.set(p, [...(kids.get(p) || []), g]); }
+  const out: { g: Gl; depth: number }[] = [];
+  const walk = (p: string | null, d: number) => {
+    for (const g of (kids.get(p) || []).sort((a, b) => (d === 0 ? qboOrder(a.qbo_type) - qboOrder(b.qbo_type) : 0) || a.number.localeCompare(b.number, undefined, { numeric: true }))) {
+      out.push({ g, depth: d }); walk(g.id, d + 1);
+    }
+  };
+  walk(null, 0);
+  return out;
+}
+
 function ChartOfAccounts({ ctx }: { ctx: Ctx }) {
   const lk = useLookups(ctx);
-  const canAdmin = ctx.can("finance", "admin");
+  const canManage = ctx.can("finance", "approve");
   const [scope, setScope] = useState<string>(ctx.hotels[0]?.id || "");   // a hotel id, or "" = company template
-  const [form, setForm] = useState<any | null>(null);
+  const [q, setQ] = useState("");
+  const [showInactive, setShowInactive] = useState(false);
   const [msg, setMsg] = useState<{ kind: "good" | "bad"; text: string } | null>(null);
-  const groups = ["asset", "liability", "equity", "revenue", "expense"];
+  const [edit, setEdit] = useState<{ g: Gl; name: string; number: string; detail: string } | null>(null);
+  const [adding, setAdding] = useState<{ name: string; qbo_type: string; detail: string; parent: string; number: string } | null>(null);
+  const [confirm, setConfirm] = useState<{ g: Gl; action: "inactive" | "delete" } | null>(null);
+  const [importing, setImporting] = useState<{ name: string; rows: { account: string; type: string; detail: string }[] } | null>(null);
+  const [busy, setBusy] = useState(false);
   const list = glOf(lk.data?.gl, scope || null);
   const template = glOf(lk.data?.gl, null);
-  const missing = scope ? template.filter((t) => !list.some((a) => a.number === t.number)) : [];
+  const missing = scope ? template.filter((t) => !list.some((a) => a.template_id === t.id || a.full_name.toLowerCase() === t.full_name.toLowerCase())) : [];
   const hotel = ctx.hotels.find((h) => h.id === scope);
-  async function addTemplate() {
-    try { const n = await db.rpc<number>("apply_templates", { p_hotel: scope }); setMsg({ kind: "good", text: `${n} template account${n === 1 ? "" : "s"} and department${n === 1 ? "" : "s"} added to ${hotel?.name}.` }); lk.reload(); }
-    catch (e: any) { setMsg({ kind: "bad", text: e.message }); }
+  const ids = list.map((g) => g.id);
+  const st = useAsync(() => (ids.length ? db.rpc<GlStatus[]>("gl_account_status", { p_ids: ids }) : Promise.resolve([] as GlStatus[])), [scope, lk.data]);
+  const status = new Map<string, GlStatus>((st.data || []).map((s: GlStatus) => [s.id, s] as [string, GlStatus]));
+  const needle = q.trim().toLowerCase();
+  const rows = glTree(list).filter(({ g }) => (showInactive || g.active) &&
+    (!needle || g.full_name.toLowerCase().includes(needle) || g.number.includes(needle) || (g.detail_type || "").toLowerCase().includes(needle)));
+  const inactiveCount = list.filter((g) => !g.active).length;
+  const reload = () => { lk.reload(); };
+  async function act(fn: () => Promise<string>) {
+    setBusy(true);
+    try { const text = await fn(); setMsg({ kind: "good", text }); reload(); }
+    catch (e: any) { setMsg({ kind: "bad", text: /delete_account/.test(e.message) ? "Deleting accounts isn't switched on yet. Make the account inactive for now." : e.message }); }
+    finally { setBusy(false); setEdit(null); setConfirm(null); setAdding(null); setImporting(null); }
   }
+  async function addTemplate() {
+    act(async () => { const n = await db.rpc<number>("apply_templates", { p_hotel: scope }); return `${n} template account${n === 1 ? "" : "s"} and department${n === 1 ? "" : "s"} added to ${hotel?.name}.`; });
+  }
+  function exportCsv() {
+    const out: (string | number)[][] = [["Account", "Type", "Detail Type", "Number", "Status"]];
+    for (const { g } of glTree(list)) out.push([g.full_name, g.qbo_type || "", g.detail_type || "", g.number, g.active ? "Active" : "Inactive"]);
+    downloadFile(`chart-of-accounts-${(hotel?.name || "template").replace(/[^\w]+/g, "-").toLowerCase()}.csv`, "﻿" + toCsv(out));
+  }
+  async function readImport(file: File) {
+    const text = (await file.text()).replace(/^﻿/, "");
+    const table = parseCsv(text);
+    const head = (table[0] || []).map((h) => h.trim().toLowerCase());
+    const ai = head.findIndex((h) => h === "account" || h === "full name" || h === "account name" || h === "name");
+    const ti = head.findIndex((h) => h === "type" || h === "account type");
+    const di = head.findIndex((h) => h === "detail type" || h === "detail");
+    if (ai < 0 || ti < 0) { setMsg({ kind: "bad", text: "That file needs “Account” and “Type” columns (a QuickBooks chart of accounts export)." }); return; }
+    const rows = table.slice(1).map((r) => ({ account: (r[ai] || "").trim(), type: (r[ti] || "").trim(), detail: di >= 0 ? (r[di] || "").trim() : "" })).filter((r) => r.account);
+    // parents must come before their sub-accounts
+    rows.sort((a, b) => a.account.split(":").length - b.account.split(":").length);
+    setImporting({ name: file.name, rows });
+  }
+  const parentOptions = list.filter((g) => g.active).sort((a, b) => a.full_name.localeCompare(b.full_name));
   return (
     <>
       <div className="toolbar">
@@ -900,33 +964,104 @@ function ChartOfAccounts({ ctx }: { ctx: Ctx }) {
           {ctx.hotels.map((h) => <option key={h.id} value={h.id}>{h.name}{h.city ? ` · ${h.city}` : ""}</option>)}
           <option value="">Company template (starting point for new hotels)</option>
         </select>
-        <span className="small muted">{scope ? `${hotel?.name}'s own books. Nothing here is shared with other hotels.` : "New hotels start with a copy of this list and then own it. Changing it doesn't change any hotel's existing books."}</span>
+        <input type="search" aria-label="Find an account" placeholder="Find an account" value={q} onChange={(e) => setQ(e.target.value)} />
+        <label className="small"><input type="checkbox" checked={showInactive} onChange={(e) => setShowInactive(e.target.checked)} /> Show inactive ({inactiveCount})</label>
         <span className="grow" />
-        {canAdmin && scope && missing.length > 0 && <button className="btn" onClick={addTemplate}>Add {missing.length} template account{missing.length === 1 ? "" : "s"}</button>}
-        {canAdmin && <button className="btn pri" onClick={() => setForm({ number: "", name: "", type: "expense", section: "" })}>Add account</button>}
+        <button className="btn" onClick={exportCsv} disabled={!list.length}>Export</button>
+        {canManage && <label className="btn">Import QuickBooks file<input type="file" accept=".csv,text/csv" hidden onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) readImport(f); }} /></label>}
+        {canManage && scope && missing.length > 0 && <button className="btn" onClick={addTemplate}>Add {missing.length} template account{missing.length === 1 ? "" : "s"}</button>}
+        {canManage && <button className="btn pri" onClick={() => setAdding({ name: "", qbo_type: "Expense", detail: "", parent: "", number: "" })}>Add account</button>}
       </div>
+      <p className="small muted">{scope ? `${hotel?.name}'s own books. Nothing here is shared with other hotels.` : "New hotels start with a copy of this list and then own it. Changing it doesn't change any hotel's existing books."}
+        {" "}Inactive accounts keep their history and still appear in reports for their dates as “Name (Inactive)”; they can't be used for new entries.</p>
       {msg && <Notice kind={msg.kind} onClose={() => setMsg(null)}>{msg.text}</Notice>}
+      {lk.loading && <Loading />}
       {lk.data && (
-        <div className="grid g2">{groups.map((g) => (
-          <Card key={g} title={({ asset: "Assets", liability: "Liabilities", equity: "Equity", revenue: "Revenue", expense: "Expenses" } as Record<string, string>)[g]} flush>
-            <div className="tw"><table><tbody>{list.filter((a) => a.type === g).map((a) => (
-              <tr key={a.id}><td className="num" style={{ width: 70 }}><b>{a.number}</b></td><td>{a.name}</td><td className="small muted">{a.section}</td></tr>
-            ))}</tbody></table></div>
-          </Card>
-        ))}</div>
+        <Card flush>
+          <div className="tw"><table>
+            <thead><tr><th style={{ width: 70 }}>Number</th><th>Account</th><th>Type</th><th>Detail type</th><th className="num">Balance</th>{canManage && <th />}</tr></thead>
+            <tbody>
+              {rows.map(({ g, depth }) => {
+                const s = status.get(g.id);
+                const canDelete = !g.system_key && s && s.uses === 0 && s.children === 0;
+                return (
+                  <tr key={g.id} className={g.active ? "" : "muted"}>
+                    <td className="num"><b>{g.number}</b></td>
+                    <td style={{ paddingLeft: 8 + depth * 18 }}>
+                      {depth > 0 && <span className="muted" aria-hidden>↳ </span>}{g.name}{!g.active && " (Inactive)"}
+                      {g.system_key && <> <Pill kind="info">Used by the platform</Pill></>}
+                    </td>
+                    <td className="small">{g.qbo_type}</td>
+                    <td className="small muted">{g.detail_type}</td>
+                    <td className="num small">{s && Number(s.balance) !== 0 ? usd(Number(s.balance), 2) : ""}</td>
+                    {canManage && <td className="nowrap" style={{ textAlign: "right" }}>
+                      <button className="btn sm" onClick={() => setEdit({ g, name: g.name, number: g.number, detail: g.detail_type || "" })}>Rename</button>{" "}
+                      {g.active
+                        ? !g.system_key && <button className="btn sm" onClick={() => setConfirm({ g, action: "inactive" })}>Make inactive</button>
+                        : <button className="btn sm" disabled={busy} onClick={() => act(async () => { await db.rpc("set_account_active", { p_id: g.id, p_active: true }); return `${g.full_name} is active again.`; })}>Make active</button>}{" "}
+                      {canDelete && <button className="btn sm danger" onClick={() => setConfirm({ g, action: "delete" })}>Delete</button>}
+                    </td>}
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table></div>
+          {!rows.length && <Empty title={needle ? "No accounts match." : "No accounts in this chart yet."} />}
+        </Card>
       )}
-      {form && (
-        <Modal title={scope ? `Add account to ${hotel?.name}` : "Add account to the company template"} onClose={() => setForm(null)} onSubmit={async (e) => {
-          e.preventDefault();
-          try { await db.insert("gl_accounts", { ...form, tenant_id: ctx.tenant.id, hotel_id: scope || null }, "id"); setForm(null); setMsg({ kind: "good", text: scope ? `Account added to ${hotel?.name} only.` : "Added to the template. Use “Add template accounts” on a hotel to give it this account." }); lk.reload(); }
-          catch (err: any) { setMsg({ kind: "bad", text: /duplicate|unique/i.test(err.message) ? `Account ${form.number} already exists here.` : err.message }); setForm(null); }
-        }} footer={<><button type="button" className="btn" onClick={() => setForm(null)}>Cancel</button><button className="btn pri">Add</button></>}>
+      {edit && (
+        <Modal title={`Rename ${edit.g.full_name}`} onClose={() => setEdit(null)} onSubmit={(e) => { e.preventDefault();
+          act(async () => { const n = await db.rpc<string>("rename_account", { p_id: edit.g.id, p_name: edit.name, p_number: edit.number, p_detail: edit.detail }); return `Renamed to ${n}. Reports and sub-accounts show the new name.`; }); }}
+          footer={<><button type="button" className="btn" onClick={() => setEdit(null)}>Cancel</button><button className="btn pri" disabled={busy}>Save</button></>}>
           <div className="fgrid">
-            <Field label="Number" id="gN"><input id="gN" required value={form.number} onChange={(e) => setForm({ ...form, number: e.target.value })} /></Field>
-            <Field label="Name" id="gNm"><input id="gNm" required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></Field>
-            <Field label="Type" id="gT"><select id="gT" value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value })}>{groups.map((g) => <option key={g} value={g}>{g}</option>)}</select></Field>
-            <Field label="Section" id="gS"><input id="gS" value={form.section} onChange={(e) => setForm({ ...form, section: e.target.value })} placeholder="e.g. Undistributed — A&G" /></Field>
+            <Field label="Name" id="rN"><input id="rN" required value={edit.name} onChange={(e) => setEdit({ ...edit, name: e.target.value })} /></Field>
+            <Field label="Number" id="rNo"><input id="rNo" value={edit.number} onChange={(e) => setEdit({ ...edit, number: e.target.value })} /></Field>
+            <Field label="Detail type" id="rD" span><input id="rD" value={edit.detail} onChange={(e) => setEdit({ ...edit, detail: e.target.value })} /></Field>
           </div>
+          <p className="small muted">History stays on the account; only the name changes.</p>
+        </Modal>
+      )}
+      {confirm && (
+        <Modal title={confirm.action === "delete" ? `Delete ${confirm.g.full_name}?` : `Make ${confirm.g.full_name} inactive?`} onClose={() => setConfirm(null)}
+          footer={<><button type="button" className="btn" onClick={() => setConfirm(null)}>Cancel</button>
+            <button className={"btn " + (confirm.action === "delete" ? "danger" : "pri")} disabled={busy} onClick={() => confirm.action === "delete"
+              ? act(async () => { await db.rpc("delete_account", { p_id: confirm.g.id }); return `${confirm.g.full_name} was deleted.`; })
+              : act(async () => { const n = await db.rpc<number>("set_account_active", { p_id: confirm.g.id, p_active: false }); return `${confirm.g.full_name}${n > 1 ? ` and ${n - 1} sub-account${n === 2 ? "" : "s"}` : ""} made inactive.`; })}>
+              {confirm.action === "delete" ? "Delete" : "Make inactive"}</button></>}>
+          {confirm.action === "delete"
+            ? <p>This account has never been used, so it can be removed completely.{!scope && " Hotels that already copied it keep their own copy."}</p>
+            : <p>It will stay in reports for past dates as “{confirm.g.name} (Inactive)” but can't be used for new bills, entries or mappings.
+                {(status.get(confirm.g.id)?.children || 0) > 0 && " Its sub-accounts become inactive too."} The balance must be zero and nothing can be waiting on it.</p>}
+        </Modal>
+      )}
+      {adding && (
+        <Modal title={scope ? `Add account to ${hotel?.name}` : "Add account to the company template"} onClose={() => setAdding(null)} onSubmit={(e) => { e.preventDefault();
+          act(async () => {
+            await db.rpc("add_account", { p_hotel: scope || null, p_tenant: ctx.tenant.id, p_name: adding.name, p_qbo_type: adding.qbo_type, p_detail: adding.detail || null, p_parent: adding.parent || null, p_number: adding.number || null });
+            return scope ? `Account added to ${hotel?.name} only.` : "Added to the template. Use “Add template accounts” on a hotel to give it this account.";
+          }); }}
+          footer={<><button type="button" className="btn" onClick={() => setAdding(null)}>Cancel</button><button className="btn pri" disabled={busy}>Add</button></>}>
+          <div className="fgrid">
+            <Field label="Name" id="aN"><input id="aN" required value={adding.name} onChange={(e) => setAdding({ ...adding, name: e.target.value })} /></Field>
+            <Field label="Sub-account of" id="aP"><select id="aP" value={adding.parent} onChange={(e) => {
+              const p = list.find((g) => g.id === e.target.value); setAdding({ ...adding, parent: e.target.value, qbo_type: p?.qbo_type || adding.qbo_type }); }}>
+              <option value="">— none (top level) —</option>{parentOptions.map((g) => <option key={g.id} value={g.id}>{g.full_name}</option>)}</select></Field>
+            <Field label="Type" id="aT"><select id="aT" value={adding.qbo_type} disabled={!!adding.parent} onChange={(e) => setAdding({ ...adding, qbo_type: e.target.value })}>
+              {QBO_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}</select></Field>
+            <Field label="Detail type" id="aD"><input id="aD" value={adding.detail} onChange={(e) => setAdding({ ...adding, detail: e.target.value })} placeholder="e.g. Repair & Maintenance" /></Field>
+            <Field label="Number" id="aNo" hint="Leave blank to number it automatically"><input id="aNo" value={adding.number} onChange={(e) => setAdding({ ...adding, number: e.target.value })} /></Field>
+          </div>
+        </Modal>
+      )}
+      {importing && (
+        <Modal title="Import chart of accounts" onClose={() => setImporting(null)}
+          footer={<><button type="button" className="btn" onClick={() => setImporting(null)}>Cancel</button>
+            <button className="btn pri" disabled={busy || !importing.rows.length} onClick={() => act(async () => {
+              const n = await db.rpc<number>("import_chart", { p_hotel: scope || null, p_rows: importing.rows, p_tenant: ctx.tenant.id });
+              return `${n} new account${n === 1 ? "" : "s"} added. Accounts already in the chart were left as they are.`;
+            })}>Import {importing.rows.length} accounts</button></>}>
+          <p><b>{importing.name}</b>: {importing.rows.length} accounts found, into {scope ? hotel?.name : "the company template"}.</p>
+          <p className="small muted">Accounts already in this chart (same full name) are kept as they are; only new ones are added. Nothing is removed.</p>
         </Modal>
       )}
     </>

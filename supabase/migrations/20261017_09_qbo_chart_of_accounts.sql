@@ -195,10 +195,10 @@ declare f record; def text; newdef text;
 begin
   for f in select p.oid from pg_proc p where p.pronamespace = 'public'::regnamespace and p.proname in ('decide_bill', 'pay_bills', 'auto_reconcile', 'match_transaction') loop
     def := pg_get_functiondef(f.oid); newdef := def;
-    newdef := regexp_replace(newdef, 'public\._gl_h\((\w+)\.hotel_id, ''2000''\)', 'public._gl_sys(\1.hotel_id, ''ap'')', 'g');
-    newdef := regexp_replace(newdef, 'public\._gl_h\((\w+)\.hotel_id, ''6210''\)', 'public._gl_sys(\1.hotel_id, ''default_expense'')', 'g');
-    newdef := regexp_replace(newdef, 'public\._gl_h\((\w+)\.hotel_id, ''6010''\)', 'public._gl_sys(\1.hotel_id, ''card_fees'')', 'g');
-    newdef := regexp_replace(newdef, 'public\._gl_h\((\w+)\.hotel_id, ''1000''\)', 'public._gl_sys(\1.hotel_id, ''cash'')', 'g');
+    newdef := regexp_replace(newdef, 'public\._gl_h\(([\w.]+), ''2000''\)', 'public._gl_sys(\1, ''ap'')', 'g');
+    newdef := regexp_replace(newdef, 'public\._gl_h\(([\w.]+), ''6210''\)', 'public._gl_sys(\1, ''default_expense'')', 'g');
+    newdef := regexp_replace(newdef, 'public\._gl_h\(([\w.]+), ''6010''\)', 'public._gl_sys(\1, ''card_fees'')', 'g');
+    newdef := regexp_replace(newdef, 'public\._gl_h\(([\w.]+), ''1000''\)', 'public._gl_sys(\1, ''cash'')', 'g');
     if newdef <> def then execute newdef; end if;
   end loop;
 end $$;
@@ -293,8 +293,8 @@ create or replace function public._gl_admin(p_id uuid) returns gl_accounts langu
 declare g gl_accounts;
 begin
   select * into g from gl_accounts where id = p_id;
-  if g.id is null or g.tenant_id not in (select my_tenant_ids()) or perm_level(g.tenant_id, 'finance') < 4
-     or (g.hotel_id is not null and not can_access_hotel(g.hotel_id)) then raise exception 'Changing the chart of accounts needs finance admin rights for this hotel'; end if;
+  if g.id is null or g.tenant_id not in (select my_tenant_ids()) or perm_level(g.tenant_id, 'finance') < 3
+     or (g.hotel_id is not null and not can_access_hotel(g.hotel_id)) then raise exception 'Changing the chart of accounts needs finance approval rights for this hotel'; end if;
   return g;
 end $$;
 revoke execute on function public._gl_admin(uuid) from public, anon, authenticated;
@@ -308,7 +308,7 @@ revoke execute on function public._gl_balance(uuid) from public, anon, authentic
 
 create or replace function public.gl_account_status(p_ids uuid[]) returns table (id uuid, uses int, children int, balance numeric, pending int)
 language sql stable security definer set search_path = public as $$
-  select g.id, public._gl_uses(g.id), (select count(*)::int from gl_accounts c where c.parent_id = g.id),
+  select g.id, public._gl_uses(g.id) - (select count(*)::int from gl_accounts t where t.template_id = g.id), (select count(*)::int from gl_accounts c where c.parent_id = g.id),
          round(public._gl_balance(g.id), 2),
          ((select count(*) from bills b where b.gl_account_id = g.id and b.status in ('draft', 'pending_approval'))
           + (select count(*) from po_lines pl join purchase_orders po on po.id = pl.po_id where pl.gl_account_id = g.id and po.status in ('draft', 'submitted', 'approved', 'ordered')))::int
@@ -322,10 +322,12 @@ create or replace function public.rename_account(p_id uuid, p_name text, p_numbe
 language plpgsql security definer set search_path = public as $$
 declare g gl_accounts := public._gl_admin(p_id);
 begin
+  if coalesce(btrim(p_name), '') = '' then raise exception 'Enter a name'; end if;
+  if position(':' in p_name) > 0 then raise exception 'A name can''t contain ":" (that separates parent and sub-accounts)'; end if;
   if p_number is not null and btrim(p_number) <> '' and exists (select 1 from gl_accounts x where x.tenant_id = g.tenant_id and x.hotel_id is not distinct from g.hotel_id and x.number = btrim(p_number) and x.id <> g.id) then
     raise exception 'Account number % is already used in this chart', btrim(p_number);
   end if;
-  update gl_accounts set name = p_name, number = coalesce(nullif(btrim(p_number), ''), number), detail_type = coalesce(nullif(btrim(p_detail), ''), detail_type) where id = g.id;
+  update gl_accounts set name = btrim(p_name), number = coalesce(nullif(btrim(p_number), ''), number), detail_type = coalesce(nullif(btrim(p_detail), ''), detail_type) where id = g.id;
   insert into audit_log(tenant_id, user_id, action, object_type, object_id, detail)
     values (g.tenant_id, auth.uid(), 'rename', 'gl_account', g.id::text, jsonb_build_object('from', g.full_name, 'to', p_name));
   return (select full_name from gl_accounts where id = g.id);
@@ -361,8 +363,8 @@ end $$;
 create or replace function public.import_chart(p_hotel uuid, p_rows jsonb, p_tenant uuid default null) returns int language plpgsql security definer set search_path = public as $$
 declare t uuid := coalesce((select tenant_id from hotels where id = p_hotel), p_tenant);
 begin
-  if t is null or t not in (select my_tenant_ids()) or perm_level(t, 'finance') < 4 or (p_hotel is not null and not can_access_hotel(p_hotel)) then
-    raise exception 'Importing a chart of accounts needs finance admin rights';
+  if t is null or t not in (select my_tenant_ids()) or perm_level(t, 'finance') < 3 or (p_hotel is not null and not can_access_hotel(p_hotel)) then
+    raise exception 'Importing a chart of accounts needs finance approval rights';
   end if;
   if jsonb_typeof(p_rows) <> 'array' or jsonb_array_length(p_rows) > 2000 then raise exception 'Send up to 2,000 accounts'; end if;
   return public._import_chart(t, p_hotel, p_rows);
@@ -370,11 +372,5 @@ end $$;
 revoke execute on function public.rename_account(uuid, text, text, text), public.set_account_active(uuid, boolean), public.import_chart(uuid, jsonb, uuid) from public, anon;
 grant execute on function public.rename_account(uuid, text, text, text), public.set_account_active(uuid, boolean), public.import_chart(uuid, jsonb, uuid) to authenticated;
 
--- 8) reports keep inactive accounts for their dates, labelled "(Inactive)" ---------------------------------------------------
-do $$
-declare def text;
-begin
-  def := pg_get_functiondef('public.pnl(date, date, uuid[])'::regprocedure);
-  def := replace(def, 'select a.section sec, a.name acct, a.number num,', 'select a.section sec, a.name || case when a.active then '''' else '' (Inactive)'' end acct, a.number num,');
-  execute def;
-end $$;
+-- 8) reports keep inactive accounts for their dates, labelled "(Inactive)"; revenue lines use the chart's names -----------
+-- (full pnl definition: see migration 20261017_11_pnl_chart_names.sql)
