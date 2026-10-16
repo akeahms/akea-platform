@@ -454,8 +454,6 @@ export function Banking({ ctx }: { ctx: Ctx }) {
   const [busy, setBusy] = useState(false);
   const [matching, setMatching] = useState<any | null>(null);
   const [addAcct, setAddAcct] = useState<any | null>(null);
-  const [feeds, setFeeds] = useState<string>("");
-  const [feedCfg, setFeedCfg] = useState<{ plaid: boolean; finicity: boolean } | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const tx = useAsync(() => acct ? db.get<any>(`bank_transactions?select=*&bank_account_id=eq.${acct.id}${view === "all" ? "" : `&status=eq.${view}`}&order=posted_date.desc&limit=400`) : Promise.resolve([]), [acct?.id, view]);
   const imports = useAsync(() => acct ? db.get<any>(`statement_imports?select=*&bank_account_id=eq.${acct.id}&order=created_at.desc&limit=5`) : Promise.resolve([]), [acct?.id, tx.data]);
@@ -496,49 +494,6 @@ export function Banking({ ctx }: { ctx: Ctx }) {
     try { await db.rpc("match_transaction", { p_tx: t.id, p_kind: kind, p_ids: ids, p_gl: gl || null }); setMatching(null); tx.reload(); accts.reload(); }
     catch (e: any) { setMsg({ kind: "bad", text: e.message }); }
   }
-  async function checkFeeds() {
-    try { const r = await callFunction<any>("bank-feeds", { action: "status" }); setFeeds(r.message); setFeedCfg(r.configured); }
-    catch { setFeeds("Bank feeds aren't switched on yet. Add Plaid or Finicity keys to the project (one-time setup), then connect each bank here."); setFeedCfg(null); }
-  }
-  async function connectPlaid() {
-    if (!acct) return;
-    setBusy(true);
-    try {
-      const { link_token } = await callFunction<any>("bank-feeds", { action: "plaid_link_token", bank_account_id: acct.id });
-      const Plaid = await loadPlaid();
-      const handler = Plaid.create({
-        token: link_token,
-        onSuccess: async (public_token: string, meta: any) => {
-          try {
-            await callFunction("bank-feeds", { action: "plaid_exchange", bank_account_id: acct.id, public_token, plaid_account_id: meta?.accounts?.[0]?.id, institution: meta?.institution?.name });
-            setFeeds(""); setMsg({ kind: "good", text: `${acct.name} is connected. Pulling transactions now…` });
-            await syncFeed();
-          } catch (e: any) { setMsg({ kind: "bad", text: e.message }); }
-        },
-        onExit: () => setBusy(false),
-      });
-      handler.open();
-    } catch (e: any) { setMsg({ kind: "bad", text: e.message }); setBusy(false); }
-  }
-  async function connectFinicity() {
-    if (!acct) return;
-    try {
-      const { url } = await callFunction<any>("bank-feeds", { action: "finicity_connect_url", bank_account_id: acct.id });
-      window.open(url, "_blank", "noopener");
-      setFeeds(""); setMsg({ kind: "info", text: `Finish signing in to the bank in the window that opened, then press "Sync now" on ${acct.name}.` });
-      accts.reload();
-    } catch (e: any) { setMsg({ kind: "bad", text: e.message }); }
-  }
-  async function syncFeed() {
-    if (!acct) return;
-    setBusy(true);
-    try {
-      const r = await callFunction<any>("bank-feeds", { action: "sync", bank_account_id: acct.id });
-      const matched = (r.matched_deposits || 0) + (r.matched_batches || 0) + (r.matched_amex || 0) + (r.matched_bills || 0);
-      setMsg({ kind: "good", text: `${r.added ?? 0} new transactions from the bank${r.duplicates ? ` (${r.duplicates} already here)` : ""}. ${matched} matched automatically.` });
-      tx.reload(); accts.reload();
-    } catch (e: any) { setMsg({ kind: "bad", text: e.message }); } finally { setBusy(false); }
-  }
   const rows = tx.data || [];
   const totals = rows.reduce((a: any, t: any) => ({ in: a.in + (t.amount > 0 ? Number(t.amount) : 0), out: a.out + (t.amount < 0 ? -Number(t.amount) : 0) }), { in: 0, out: 0 });
 
@@ -546,18 +501,8 @@ export function Banking({ ctx }: { ctx: Ctx }) {
     <>
       <PageHead eyebrow="Finance" title="Banking & Reconciliation" desc="Bank feeds where available, any statement file where not. Deposits match to the night audit automatically."
         actions={<>
-          <button className="btn" onClick={checkFeeds}>Connect bank feed</button>
           {ctx.can("finance", "approve") && <button className="btn" onClick={() => setAddAcct({ hotel_id: ctx.hotels.find((h) => h.status === "operating")?.id, name: "", institution: "", last4: "", kind: "operating" })}>Add bank account</button>}
         </>} />
-      {feeds && <Notice kind="info" onClose={() => setFeeds("")}>
-        {feeds}
-        {acct && ctx.can("finance", "approve") && (feedCfg?.plaid || feedCfg?.finicity) && (
-          <div style={{ display: "flex", marginTop: 8, gap: 8, flexWrap: "wrap" }}>
-            {feedCfg?.plaid && <button className="btn primary sm" disabled={busy} onClick={connectPlaid}>Connect {acct.name} with Plaid</button>}
-            {feedCfg?.finicity && <button className="btn sm" disabled={busy} onClick={connectFinicity}>Connect {acct.name} with Finicity</button>}
-          </div>
-        )}
-      </Notice>}
       {accts.loading && !accts.data && <Loading />}
       {accts.error && <ErrorBox error={accts.error} retry={accts.reload} />}
       {accts.data && !accts.data.a.length && <Empty title="No bank accounts yet.">Add each hotel's operating account to start reconciling.</Empty>}
@@ -580,7 +525,6 @@ export function Banking({ ctx }: { ctx: Ctx }) {
                 <Seg label="Show" value={view} onChange={setView} options={[["unmatched", "To review"], ["matched", "Matched"], ["all", "All"]]} />
                 <span className="grow" />
                 <span className="small muted">In {usd(totals.in, 2)} · Out {usd(totals.out, 2)}</span>
-                {canEdit && acct.feed && acct.feed !== "manual" && <button className="btn" disabled={busy} onClick={syncFeed}>Sync now</button>}
                 {canEdit && <button className="btn" disabled={busy} onClick={autoMatch}>Auto-match now</button>}
               </div>
               {msg && <Notice kind={msg.kind === "info" ? "info" : msg.kind} onClose={() => setMsg(null)}>{msg.text}</Notice>}
@@ -603,6 +547,7 @@ export function Banking({ ctx }: { ctx: Ctx }) {
               </Card>
             </div>
             <div className="grid" style={{ alignContent: "start" }}>
+              <BankFeedCard ctx={ctx} acct={acct} onChanged={() => { tx.reload(); accts.reload(); }} />
               {canEdit && (
                 <Card title="Upload a statement">
                   <div className="drop" onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); e.dataTransfer.files[0] && onFile(e.dataTransfer.files[0]); }}>
@@ -958,6 +903,124 @@ function ChartOfAccounts({ ctx }: { ctx: Ctx }) {
         </Modal>
       )}
     </>
+  );
+}
+
+// ======================= Bank feed (Plaid / Finicity) =======================
+// Connect an account once; it then syncs nightly and whenever the bank reports new transactions.
+type FeedStatus = { bank_account_id: string; provider: "plaid" | "finicity"; status: string; institution: string | null; account_name: string | null;
+  account_mask: string | null; last_synced_at: string | null; last_error: string | null; consent_expires_at: string | null };
+const FEED_PILL: Record<string, [string, "good" | "warn" | "bad" | "mute"]> = {
+  active: ["Connected", "good"], pending: ["Waiting for bank sign-in", "warn"], needs_relogin: ["Sign in to the bank again", "bad"], error: ["Sync problem", "bad"],
+};
+function BankFeedCard({ ctx, acct, onChanged }: { ctx: Ctx; acct: BankAcct; onChanged: () => void }) {
+  const canSync = ctx.can("finance", "edit"), canConnect = ctx.can("finance", "approve");
+  const cfg = useAsync(() => callFunction<any>("bank-feeds", { action: "status" }).catch(() => null), []);
+  const st = useAsync(() => db.rpc<FeedStatus[]>("bank_feed_status", { p_accounts: [acct.id] }).then((r) => r[0] || null), [acct.id]);
+  const [busy, setBusy] = useState("");
+  const [note, setNote] = useState<{ kind: "good" | "bad" | "info"; text: string } | null>(null);
+  const [choose, setChoose] = useState<{ accounts: any[]; linked: string | null } | null>(null);
+  const [confirmOff, setConfirmOff] = useState(false);
+  const f = st.data;
+  const on = cfg.data?.configured || { plaid: false, finicity: false };
+  const refresh = () => { st.reload(); onChanged(); };
+  const summary = (r: any) => {
+    const m = (r.matched || 0);
+    return `${r.added ?? 0} new transaction${r.added === 1 ? "" : "s"}${r.duplicates ? ` (${r.duplicates} already here)` : ""}${r.updated ? `, ${r.updated} corrected by the bank` : ""}${r.removed ? `, ${r.removed} withdrawn by the bank` : ""}. ${m} matched automatically.${r.balance != null ? ` Balance ${usd(Number(r.balance), 2)}.` : ""}`;
+  };
+  async function call(action: string, extra: Record<string, unknown> = {}) {
+    return callFunction<any>("bank-feeds", { action, bank_account_id: acct.id, ...extra });
+  }
+  async function run(label: string, fn: () => Promise<void>) {
+    setBusy(label); setNote(null);
+    try { await fn(); } catch (e: any) { setNote({ kind: "bad", text: e.message }); st.reload(); } finally { setBusy(""); }
+  }
+  const connectPlaid = (relink = false) => run("plaid", async () => {
+    const { link_token } = await call("plaid_link_token", { relink });
+    const Plaid = await loadPlaid();
+    await new Promise<void>((resolve, reject) => {
+      Plaid.create({
+        token: link_token,
+        onSuccess: async (public_token: string, meta: any) => {
+          try {
+            setNote({ kind: "info", text: "Connected. Pulling transactions from the bank…" });
+            const r = await call("plaid_exchange", { public_token, relink, plaid_account_id: meta?.accounts?.[0]?.id, institution: meta?.institution?.name });
+            setNote({ kind: "good", text: `${acct.name} is connected to ${meta?.institution?.name || "the bank"}. ${summary(r)}` });
+            refresh(); resolve();
+          } catch (e) { reject(e); }
+        },
+        onExit: (err: any) => (err ? reject(new Error(err.display_message || err.error_message || "The bank connection was closed before it finished.")) : resolve()),
+      }).open();
+    });
+  });
+  const connectFinicity = (relink = false) => run("finicity", async () => {
+    const { url } = await call("finicity_connect_url", { relink });
+    const w = window.open(url, "akea-finicity", "width=520,height=760");
+    if (!w) throw new Error("Your browser blocked the bank window. Allow pop-ups for this site and try again.");
+    setNote({ kind: "info", text: "Sign in to the bank in the window that opened. Transactions start arriving as soon as you finish; you can also press Sync now." });
+    st.reload();
+  });
+  const sync = () => run("sync", async () => { const r = await call("sync"); setNote({ kind: "good", text: summary(r) }); refresh(); });
+  const openChoose = () => run("accounts", async () => setChoose(await call("accounts")));
+  const pick = (id: string) => run("choose", async () => { const r = await call("choose_account", { external_account_id: id }); setChoose(null); setNote({ kind: "good", text: `Account changed. ${summary(r)}` }); refresh(); });
+  const disconnect = () => run("off", async () => { await call("disconnect"); setConfirmOff(false); setNote({ kind: "good", text: "Bank feed disconnected. Transactions already imported stay; upload statements from now on." }); refresh(); });
+
+  if (st.loading && !st.data && !st.error) return <Card title="Bank feed"><Loading /></Card>;
+  const pill = f ? FEED_PILL[f.status] || [f.status, "mute"] : null;
+  const relinkFor = (p: string) => (p === "plaid" ? connectPlaid(true) : connectFinicity(true));
+  return (
+    <Card title="Bank feed" actions={pill ? <Pill kind={pill[1]}>{pill[0]}</Pill> : undefined}>
+      {note && <Notice kind={note.kind} onClose={() => setNote(null)}>{note.text}</Notice>}
+      {f ? (
+        <>
+          <div className="small">
+            <b>{f.provider === "plaid" ? "Plaid" : "Finicity"}</b>{f.institution ? ` · ${f.institution}` : ""}
+            {f.account_name && <div>{f.account_name}{f.account_mask ? ` ••${f.account_mask}` : ""}</div>}
+            <div className="muted">{f.last_synced_at ? `Last synced ${new Date(f.last_synced_at).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}` : "Not synced yet"} · syncs nightly and when the bank posts new activity</div>
+            {f.consent_expires_at && <div className="muted">Bank consent ends {fmtDate(f.consent_expires_at.slice(0, 10))}</div>}
+          </div>
+          {f.last_error && <Notice kind={f.status === "active" ? "info" : "bad"}>{f.last_error}</Notice>}
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            {canSync && f.status !== "pending" && f.status !== "needs_relogin" && <button className="btn sm pri" disabled={!!busy} onClick={sync}>{busy === "sync" ? "Syncing…" : "Sync now"}</button>}
+            {canConnect && (f.status === "needs_relogin" || f.status === "error" || f.status === "pending") &&
+              <button className="btn sm pri" disabled={!!busy} onClick={() => relinkFor(f.provider)}>{f.status === "pending" ? "Open bank sign-in" : "Reconnect"}</button>}
+            {canConnect && f.status !== "pending" && <button className="btn sm" disabled={!!busy} onClick={openChoose}>Change account</button>}
+            {canConnect && <button className="btn sm" disabled={!!busy} onClick={() => setConfirmOff(true)} style={{ color: "var(--bad)" }}>Disconnect</button>}
+          </div>
+        </>
+      ) : (
+        <>
+          <p className="small" style={{ margin: 0 }}>Connect {acct.name} to its bank and transactions arrive on their own each night, already matched to the night audit deposits.</p>
+          {!on.plaid && !on.finicity ? (
+            <p className="small muted" style={{ margin: 0 }}>Bank feeds aren't switched on yet. An administrator adds the Plaid or Finicity keys once (Supabase → Edge Functions → Secrets). Until then, upload statements below.</p>
+          ) : canConnect ? (
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              {on.plaid && <button className="btn sm pri" disabled={!!busy} onClick={() => connectPlaid(false)}>{busy === "plaid" ? "Opening…" : "Connect with Plaid"}</button>}
+              {on.finicity && <button className="btn sm" disabled={!!busy} onClick={() => connectFinicity(false)}>{busy === "finicity" ? "Opening…" : "Connect with Finicity"}</button>}
+            </div>
+          ) : <p className="small muted" style={{ margin: 0 }}>Someone with finance approval rights can connect this account.</p>}
+          {(on.plaid || on.finicity) && <p className="tag" style={{ margin: 0 }}>Most US banks work with Plaid. Use Finicity if your bank isn't listed there. {cfg.data?.environments?.plaid === "sandbox" && on.plaid ? "Plaid is in test mode (sandbox): use user_good / pass_good." : ""}</p>}
+        </>
+      )}
+      {choose && (
+        <Modal title="Which account is this?" onClose={() => setChoose(null)} footer={<button type="button" className="btn" onClick={() => setChoose(null)}>Cancel</button>}>
+          <p className="small muted">The bank shared these accounts. Pick the one that matches {acct.name}; past transactions for it are pulled in again (duplicates are skipped).</p>
+          {choose.accounts.map((a: any) => (
+            <button key={a.id} type="button" className="li" disabled={!!busy || a.id === choose.linked} onClick={() => pick(a.id)}
+              style={{ display: "flex", width: "100%", justifyContent: "space-between", gap: 8, textAlign: "left" }}>
+              <span><b>{a.name}</b> {a.mask ? `••${a.mask}` : ""} <span className="tag">{a.type || ""}</span></span>
+              <span>{a.balance != null ? usd(Number(a.balance), 2) : ""}{a.id === choose.linked ? " · linked" : ""}</span>
+            </button>
+          ))}
+        </Modal>
+      )}
+      {confirmOff && f && (
+        <Modal title="Disconnect bank feed?" onClose={() => setConfirmOff(false)}
+          footer={<><button type="button" className="btn" onClick={() => setConfirmOff(false)}>Cancel</button><button type="button" className="btn pri" disabled={!!busy} onClick={disconnect}>Disconnect</button></>}>
+          <p>{acct.name} stops receiving transactions from {f.provider === "plaid" ? "Plaid" : "Finicity"}, and the bank access is revoked. Transactions already imported stay. You can connect again any time.</p>
+        </Modal>
+      )}
+    </Card>
   );
 }
 
