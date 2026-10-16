@@ -8,7 +8,7 @@ const json = (b: unknown, status = 200) => new Response(JSON.stringify(b), { sta
 const sameText = (a: string, b: string) => { if (!a || !b || a.length !== b.length) return false; let d = 0; for (let i = 0; i < a.length; i++) d |= a.charCodeAt(i) ^ b.charCodeAt(i); return d === 0; };
 const env = (k: string) => Deno.env.get(k) || "";
 // The link in emails always points at the real portal (never a URL supplied in the request).
-const PORTAL = (env("PORTAL_URL") || "https://akea-portal.onrender.com").replace(/\/$/, "");
+const PORTAL = (env("PORTAL_URL") || "https://akea-portal.onrender.com/app").replace(/\/$/, "");
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });

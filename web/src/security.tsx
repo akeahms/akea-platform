@@ -72,7 +72,7 @@ export function MfaGate({ required, email, onDone }: { required: boolean; email:
   return (
     <div className="center">
       <form className="card pad mfa" onSubmit={submit}>
-        <img src="/logo.png" alt="" className="auth-logo-sm" style={{ display: "block" }} />
+        <img src="logo.png" alt="" className="auth-logo-sm" style={{ display: "block" }} />
         {!factors && !err && <Loading />}
         {enroll && (
           <>

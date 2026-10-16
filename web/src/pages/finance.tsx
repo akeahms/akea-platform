@@ -60,6 +60,9 @@ export function Bills({ ctx }: { ctx: Ctx }) {
   const [adding, setAdding] = useState(false);
   const [paying, setPaying] = useState(false);
   const [deciding, setDeciding] = useState<{ bill: Bill; approve: boolean } | null>(null);
+  // voiding an approved / scheduled / paid bill (vendor payment refund) is for a Principal only; it reverses the bill's entries
+  const [voiding, setVoiding] = useState<{ bill: Bill; reason: string } | null>(null);
+  const principal = useAsync(() => db.rpc<boolean>("is_principal", { p_tenant: ctx.tenant.id }), [ctx.tenant.id]);
   const statusFilter = { approve: "status=eq.pending_approval", pay: "status=eq.approved", scheduled: "status=eq.scheduled", paid: "status=eq.paid", draft: "status=in.(draft,rejected)", all: "" }[tab];
   const q = useAsync(() => db.get<Bill>(`bills?select=*&tenant_id=eq.${ctx.tenant.id}${hotelId ? `&hotel_id=eq.${hotelId}` : ""}${statusFilter ? "&" + statusFilter : ""}&order=due_date.asc.nullslast&limit=300`), [hotelId, tab]);
   const counts = useAsync(() => db.getAll<any>(`bills?select=id,status,amount&tenant_id=eq.${ctx.tenant.id}${hotelId ? `&hotel_id=eq.${hotelId}` : ""}&status=in.(pending_approval,approved,scheduled)&order=id.asc`), [hotelId, q.data]);
@@ -123,6 +126,7 @@ export function Bills({ ctx }: { ctx: Ctx }) {
                       {b.status === "pending_approval" && canApprove && <>
                         <button className="btn sm" onClick={() => setDeciding({ bill: b, approve: false })}>Reject</button>
                         <button className="btn sm pri" onClick={() => setDeciding({ bill: b, approve: true })}>Approve</button></>}
+                      {["approved", "scheduled", "paid"].includes(b.status) && principal.data && <button className="btn sm danger" onClick={() => setVoiding({ bill: b, reason: "" })}>Void</button>}
                     </div></td>
                   </tr>
                 );
@@ -130,6 +134,17 @@ export function Bills({ ctx }: { ctx: Ctx }) {
             </table></div>
           ) : <Empty title={tab === "approve" ? "Nothing waiting for approval." : "No bills here."} />}
         </Card>
+      )}
+      {voiding && (
+        <Modal title={`Void ${usd(Number(voiding.bill.amount), 2)} bill?`} onClose={() => setVoiding(null)}
+          onSubmit={async (e) => { e.preventDefault();
+            try { const n = await db.rpc<number>("void_bill", { p_id: voiding.bill.id, p_reason: voiding.reason }); setVoiding(null);
+              setMsg({ kind: "good", text: `Bill voided${n ? ` and ${n} accounting entr${n === 1 ? "y" : "ies"} reversed` : ""}.` }); q.reload(); }
+            catch (err: any) { setMsg({ kind: "bad", text: err.message }); setVoiding(null); } }}
+          footer={<><button type="button" className="btn" onClick={() => setVoiding(null)}>Cancel</button><button className="btn danger">Void bill</button></>}>
+          <p>This bill is {voiding.bill.status}. Voiding reverses its accounting entries{voiding.bill.status === "paid" ? " (including the payment, e.g. when the vendor refunded you)" : ""}. Only a Principal can do this.</p>
+          <Field label="Reason" id="vdR"><input id="vdR" required maxLength={300} value={voiding.reason} onChange={(e) => setVoiding({ ...voiding, reason: e.target.value })} placeholder="e.g. Vendor refunded the full amount" /></Field>
+        </Modal>
       )}
       {adding && lk.data && <BillForm ctx={ctx} vendors={lk.data.vendors} gl={lk.data.gl} hotelId={hotelId || operating[0]?.id} onClose={(saved) => { setAdding(false); if (saved) { setMsg({ kind: "good", text: saved }); q.reload(); } }} />}
       {paying && <PayModal ctx={ctx} bills={selected} onClose={(done) => { setPaying(false); if (done) { setSel([]); setMsg({ kind: "good", text: done }); q.reload(); } }} />}

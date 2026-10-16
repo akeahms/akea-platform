@@ -10,17 +10,19 @@ import { colors, space } from "@/theme";
 export default function Approvals() {
   const app = useApp();
   const bills = app.can("finance", "approve"), pos = app.can("purchasing", "approve"), punches = app.can("workforce", "approve");
+  const principal = app.roleKey === "principal";   // refunds need a Principal (the server checks it too)
   const [busy, setBusy] = useState<string>("");
   const busyRef = useRef(false);
   const q = useLoad(async () => {
     const since = new Date(Date.now() - 14 * 864e5).toISOString();
-    const [b, p, t] = await Promise.all([
+    const [b, p, t, r] = await Promise.all([
       bills ? db.get<any>(`bills?select=id,hotel_id,invoice_no,due_date,amount,description,vendors(name)&status=eq.pending_approval&order=due_date.asc.nullslast&limit=50`) : [],
       pos ? db.get<any>(`purchase_orders?select=id,hotel_id,po_no,needed_by,total,notes,vendors(name)&status=eq.submitted&order=created_at.asc&limit=50`) : [],
       punches ? db.get<any>(`time_punches?select=id,hotel_id,clock_in,clock_out,break_minutes,employees(first_name,last_name)&approved_at=is.null&clock_out=not.is.null&clock_in=gte.${since}&order=clock_in.asc&limit=200`) : [],
+      principal ? db.get<any>(`refund_requests?select=id,hotel_id,kind,guest_name,reference,amount,method,reason&status=eq.requested&order=requested_at.asc&limit=50`) : [],
     ]);
-    return { b, p, t };
-  }, [bills, pos, punches]);
+    return { b, p, t, r };
+  }, [bills, pos, punches, principal]);
   const hotel = (id: string) => app.hotels.find((h) => h.id === id)?.name || "";
 
   function confirm(title: string, msg: string, run: () => Promise<unknown>, key: string, destructive = false) {
@@ -36,15 +38,30 @@ export default function Approvals() {
     }]);
   }
 
-  if (!bills && !pos && !punches) return <Screen><Card><Empty title="Nothing to approve" sub="Your role doesn't include approvals." /></Card></Screen>;
+  if (!bills && !pos && !punches && !principal) return <Screen><Card><Empty title="Nothing to approve" sub="Your role doesn't include approvals." /></Card></Screen>;
   const t = q.data?.t || [];
   const hrs = t.reduce((a: number, x: any) => a + hoursBetween(x.clock_in, x.clock_out, x.break_minutes), 0);
-  const total = (q.data?.b.length || 0) + (q.data?.p.length || 0) + (t.length ? 1 : 0);
+  const total = (q.data?.b.length || 0) + (q.data?.p.length || 0) + (t.length ? 1 : 0) + (q.data?.r.length || 0);
 
   return (
     <Screen refreshing={q.loading && !!q.data} onRefresh={q.refresh}>
       {q.error ? <ErrorText text={q.error} /> : null}
       {q.data && !total ? <Card><Empty title="You're all caught up" sub="Bills, purchase orders and timesheets waiting on you show up here." /></Card> : null}
+
+      {principal && !!q.data?.r.length && (
+        <Card title="Refunds" right={<Pill text={String(q.data.r.length)} tone="warn" />}>
+          {q.data.r.map((r: any) => (
+            <View key={r.id} style={styles.item}>
+              <Row title={r.guest_name} subtitle={[hotel(r.hotel_id), r.kind === "deposit" ? "Deposit refund" : "Guest refund", r.reference, r.reason].filter(Boolean).join(" · ")}
+                right={<Text style={styles.money}>{usd(Number(r.amount), 2)}</Text>} />
+              <View style={styles.actions}>
+                <View style={{ flex: 1 }}><Button kind="secondary" title="Reject" busy={busy === "rr" + r.id} disabled={!!busy && busy !== "rr" + r.id} onPress={() => confirm("Reject refund?", `${r.guest_name} · ${usd(Number(r.amount), 2)}`, () => db.rpc("decide_refund", { p_id: r.id, p_approve: false, p_note: "Rejected on mobile" }), "rr" + r.id, true)} /></View>
+                <View style={{ flex: 1 }}><Button title="Approve" busy={busy === "ar" + r.id} disabled={!!busy && busy !== "ar" + r.id} onPress={() => confirm("Approve refund?", `${r.guest_name} · ${usd(Number(r.amount), 2)}\n${r.reason}`, () => db.rpc("decide_refund", { p_id: r.id, p_approve: true, p_note: null }), "ar" + r.id)} /></View>
+              </View>
+            </View>
+          ))}
+        </Card>
+      )}
 
       {bills && !!q.data?.b.length && (
         <Card title="Bills" right={<Pill text={String(q.data.b.length)} tone="warn" />}>

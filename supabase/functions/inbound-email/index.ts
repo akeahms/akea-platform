@@ -280,7 +280,7 @@ Deno.serve(async (req) => {
   if (snapshotDate) {
     try {
       const r = await fetch(`${env("SUPABASE_URL")}/functions/v1/daily-snapshot`, { method: "POST", headers: { "Content-Type": "application/json", "x-akea-token": expected },
-        body: JSON.stringify({ action: "system_send", hotel_id: hotel.id, date: snapshotDate, portal: env("PORTAL_URL") || "https://akea-portal.onrender.com" }) });
+        body: JSON.stringify({ action: "system_send", hotel_id: hotel.id, date: snapshotDate, portal: env("PORTAL_URL") || "https://akea-portal.onrender.com/app" }) });
       const j = await r.json();
       notes.push(j.error ? `snapshot not sent: ${j.error}` : `snapshot: ${j.sent} sent${j.note ? " (" + j.note + ")" : ""}`);
     } catch (e) { notes.push(`snapshot not sent: ${(e as Error).message}`); }

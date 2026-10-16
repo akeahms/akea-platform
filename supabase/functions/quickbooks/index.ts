@@ -14,7 +14,7 @@ const json = (b: unknown, status = 200) => new Response(JSON.stringify(b), { sta
 const env = (k: string) => Deno.env.get(k) || "";
 const SB_URL = env("SUPABASE_URL");
 const ANON = env("SUPABASE_ANON_KEY") || env("SUPABASE_PUBLISHABLE_KEY");
-const PORTAL = (env("PORTAL_URL") || "https://akea-portal.onrender.com").replace(/\/$/, "");
+const PORTAL = (env("PORTAL_URL") || "https://akea-portal.onrender.com/app").replace(/\/$/, "");
 const REDIRECT = `${SB_URL}/functions/v1/quickbooks/callback`;
 const admin = createClient(SB_URL, env("SUPABASE_SERVICE_ROLE_KEY"), { auth: { persistSession: false } });
 const background = (p: Promise<unknown>) => { const q = p.catch((e) => console.error("quickbooks background:", e?.message || e)); if (typeof EdgeRuntime !== "undefined") EdgeRuntime.waitUntil(q); };

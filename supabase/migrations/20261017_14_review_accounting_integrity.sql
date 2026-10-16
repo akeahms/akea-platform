@@ -45,17 +45,23 @@ begin
   execute def;
 end $$;
 
--- 5) every hotel-scoped row belongs to the same company as its hotel
-alter table public.hotels add constraint hotels_id_tenant_uk unique (id, tenant_id);
+-- 5) every hotel-scoped row belongs to the same company as its hotel (a trigger, not a second foreign key:
+--    two foreign keys between the same tables make the API's embedded lookups ambiguous)
+create or replace function public._hotel_tenant_match() returns trigger language plpgsql security definer set search_path = public as $$
+begin
+  if new.hotel_id is not null and new.tenant_id is distinct from (select h.tenant_id from hotels h where h.id = new.hotel_id) then
+    raise exception 'This record''s company doesn''t match its hotel''s company.';
+  end if;
+  return new;
+end $$;
+revoke execute on function public._hotel_tenant_match() from public, anon, authenticated;
 do $$
-declare t text; bad int;
+declare t text;
 begin
   foreach t in array array['bank_accounts','bank_transactions','bills','budget_gl','change_orders','construction_budget','construction_draws','construction_milestones',
     'departments','distributions','documents','employee_pay','employees','expected_deposits','gl_accounts','inbound_emails','insurance_policies','investor_holdings',
     'journal_entries','journal_lines','notifications','permits','po_lines','purchase_orders','qbo_account_map','qbo_accounts','qbo_connections','qbo_settings',
     'qbo_sync_log','reports','shift_requests','shifts','snapshot_recipients','snapshot_sends','statement_imports','time_punches'] loop
-    execute format('select count(*) from public.%I x join public.hotels h on h.id = x.hotel_id where x.tenant_id is distinct from h.tenant_id', t) into bad;
-    if bad > 0 then raise exception '% has % rows whose company differs from their hotel''s', t, bad; end if;
-    execute format('alter table public.%I add constraint %I foreign key (hotel_id, tenant_id) references public.hotels(id, tenant_id) on delete cascade', t, t || '_hotel_tenant_fk');
+    execute format('create trigger %I before insert or update of hotel_id, tenant_id on public.%I for each row execute function public._hotel_tenant_match()', t || '_hotel_tenant', t);
   end loop;
 end $$;

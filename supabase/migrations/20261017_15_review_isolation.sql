@@ -64,8 +64,16 @@ alter policy documents_read on public.documents using (
       and (investor_id is null or public.perm_level(tenant_id, 'investor') >= 2 or investor_id in (select i.id from public.investors i where i.user_id = (select auth.uid()))))
   )
 );
-alter table public.roles add constraint roles_id_tenant_uk unique (id, tenant_id);
-alter table public.memberships add constraint memberships_role_tenant_fk foreign key (role_id, tenant_id) references public.roles(id, tenant_id);
+-- a membership's role must belong to the same company (trigger, not a composite foreign key: see migration 14)
+create or replace function public._membership_role_tenant() returns trigger language plpgsql security definer set search_path = public as $$
+begin
+  if new.tenant_id is distinct from (select r.tenant_id from roles r where r.id = new.role_id) then
+    raise exception 'That role belongs to a different company.';
+  end if;
+  return new;
+end $$;
+revoke execute on function public._membership_role_tenant() from public, anon, authenticated;
+create trigger memberships_role_tenant before insert or update of role_id, tenant_id on public.memberships for each row execute function public._membership_role_tenant();
 create or replace function public._guard_principal_grant() returns trigger language plpgsql security definer set search_path = public as $$
 begin
   if current_user in ('authenticated', 'anon')

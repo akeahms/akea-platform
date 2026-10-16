@@ -2,16 +2,26 @@ import React, { useEffect, useMemo, useState } from "react";
 import { auth, onAuth, currentSession, Session, mfa } from "./lib/sb";
 import { SocialButtons, MfaGate, AccountSecurity } from "./security";
 import { loadContext, makeCan, Ctx, Membership, Hotel, appName, productName, loadBranding, Branding, safeLogo, safeColor } from "./lib/app";
-import { Portfolio, HotelOverview, Str } from "./pages/dashboards";
-import { Hotels, Users, Company, Settings } from "./pages/admin";
-import { Reports, Snapshot } from "./pages/reports";
-import { Schedule, TimeClock, Timesheets, Team } from "./pages/workforce";
-import { Bills, Vendors, Purchasing, Banking, Accounting } from "./pages/finance";
-import { Vault, Permits, Insurance, AlertsPanel, useAlerts } from "./pages/compliance";
-import { Investors, InvestorPortal, LoanPackage, PfsPage, Construction } from "./pages/capital";
-import { AskAI, PdfFiller } from "./pages/intelligence";
-import { PlatformCosts } from "./pages/platform";
+import { AlertsPanel, useAlerts } from "./pages/compliance";
 import { Loading, ErrorBox } from "./ui";
+
+// Each area of the app loads when first opened (smaller first download).
+const page = <M extends Record<string, any>>(load: () => Promise<M>, name: keyof M) =>
+  React.lazy(() => load().then((m) => ({ default: m[name] as React.ComponentType<any> })));
+const dashboards = () => import("./pages/dashboards"), admin = () => import("./pages/admin"), reports = () => import("./pages/reports");
+const workforce = () => import("./pages/workforce"), finance = () => import("./pages/finance"), compliance = () => import("./pages/compliance");
+const capital = () => import("./pages/capital"), intelligence = () => import("./pages/intelligence"), platform = () => import("./pages/platform");
+const Portfolio = page(dashboards, "Portfolio"), HotelOverview = page(dashboards, "HotelOverview"), Str = page(dashboards, "Str");
+const Hotels = page(admin, "Hotels"), Users = page(admin, "Users"), Company = page(admin, "Company"), Settings = page(admin, "Settings");
+const Reports = page(reports, "Reports"), Snapshot = page(reports, "Snapshot");
+const Schedule = page(workforce, "Schedule"), TimeClock = page(workforce, "TimeClock"), Timesheets = page(workforce, "Timesheets"), Team = page(workforce, "Team");
+const Bills = page(finance, "Bills"), Vendors = page(finance, "Vendors"), Purchasing = page(finance, "Purchasing"), Banking = page(finance, "Banking"), Accounting = page(finance, "Accounting");
+const Vault = page(compliance, "Vault"), Permits = page(compliance, "Permits"), Insurance = page(compliance, "Insurance");
+const Investors = page(capital, "Investors"), InvestorPortal = page(capital, "InvestorPortal"), LoanPackage = page(capital, "LoanPackage"), PfsPage = page(capital, "PfsPage"), Construction = page(capital, "Construction");
+const AskAI = page(intelligence, "AskAI"), PdfFiller = page(intelligence, "PdfFiller");
+const PlatformCosts = page(platform, "PlatformCosts");
+const Website = page(() => import("./pages/website"), "Website");
+const Refunds = page(() => import("./pages/refunds"), "Refunds");
 
 // ---------------- routing: #route/param ----------------
 function useRoute() {
@@ -141,6 +151,7 @@ const NAV: { group: string; items: NavItem[] }[] = [
     { id: "bills", label: "Bills & Bill Pay", module: "finance", icon: I.bill },
     { id: "banking", label: "Banking & Reconciliation", module: "finance", icon: I.bank },
     { id: "accounting", label: "Accounting & Budget", module: "finance", icon: I.ledger },
+    { id: "refunds", label: "Refunds", module: "finance", icon: I.bill },
     { id: "vendors", label: "Vendors", module: "finance", icon: I.store },
     { id: "purchasing", label: "Purchasing", module: "purchasing", icon: I.cart },
   ] },
@@ -164,6 +175,7 @@ const NAV: { group: string; items: NavItem[] }[] = [
     { id: "company", label: "Company Information", module: "company", icon: I.book },
     { id: "users", label: "Users & Permissions", module: "users", icon: I.people },
     { id: "settings", label: "White-label Settings", module: "settings", icon: I.palette },
+    { id: "website", label: "Website", module: "company", icon: I.mail, show: (c) => c.can("company") || c.can("workforce", "edit") },
     { id: "platform-costs", label: "Platform Costs", module: "platform_costs", icon: I.bill },
   ] },
 ];
@@ -217,6 +229,8 @@ function Shell({ ctx, session }: { ctx: Ctx; session: Session }) {
       case "users": return <Users ctx={ctx} />;
       case "settings": return <Settings ctx={ctx} />;
       case "platform-costs": return <PlatformCosts ctx={ctx} />;
+      case "website": return <Website ctx={ctx} />;
+      case "refunds": return <Refunds ctx={ctx} />;
       case "account": return <AccountSecurity required={ctx.membership.roles.requires_mfa} email={session.user.email} />;
       default: return <div className="empty"><b>Your role doesn't include any {appName()} pages yet.</b><span>Ask your administrator to update your access.</span></div>;
     }
@@ -263,7 +277,7 @@ function Shell({ ctx, session }: { ctx: Ctx; session: Session }) {
           <span className="top-role">{ctx.membership.roles.name}</span>
         </header>
         {bell && <AlertsPanel ctx={ctx} onClose={() => { setBell(false); alerts.reload(); }} />}
-        <main className="content">{view}</main>
+        <main className="content"><React.Suspense fallback={<Loading />}>{view}</React.Suspense></main>
       </div>
     </div>
   );

@@ -47,7 +47,7 @@ export async function readXlsx(file: Blob): Promise<string[][][]> {
 // ---------------- PDF text (digital PDFs; scanned images need OCR) ----------------
 export async function pdfLines(file: Blob): Promise<string[]> {
   const pdfjs: any = await import("pdfjs-dist");
-  pdfjs.GlobalWorkerOptions.workerSrc = "/pdf.worker.min.mjs";
+  pdfjs.GlobalWorkerOptions.workerSrc = new URL("pdf.worker.min.mjs", document.baseURI).href;   // next to the app (works under /app/)
   const doc = await pdfjs.getDocument({ data: new Uint8Array(await file.arrayBuffer()) }).promise;
   const lines: string[] = [];
   for (let p = 1; p <= doc.numPages; p++) {

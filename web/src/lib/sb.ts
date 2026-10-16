@@ -8,6 +8,9 @@ export const SUPABASE_URL = __SUPABASE_URL__;
 const KEY = __SUPABASE_KEY__;
 const STORE = "akea.session";
 
+/** Where the app lives (e.g. https://akeahms.com/app/): sign-in emails and redirects come back here. */
+const appUrl = () => new URL("./", document.baseURI).href;
+
 export type User = { id: string; email: string; user_metadata?: Record<string, unknown> };
 export type Session = { access_token: string; refresh_token: string; expires_at: number; user: User };
 
@@ -116,7 +119,7 @@ export const auth = {
     save(toSession(await res.json()));
   },
   async signUp(email: string, password: string, fullName: string) {
-    const redirect = encodeURIComponent(window.location.origin + "/");
+    const redirect = encodeURIComponent(appUrl());
     const res = await fetch(`${SUPABASE_URL}/auth/v1/signup?redirect_to=${redirect}`, {
       method: "POST",
       headers: { apikey: KEY, "Content-Type": "application/json" },
@@ -129,7 +132,7 @@ export const auth = {
   },
   // Passwordless: email a one-time sign-in link (existing accounts only).
   async emailLink(email: string) {
-    const redirect = encodeURIComponent(window.location.origin + "/");
+    const redirect = encodeURIComponent(appUrl());
     const res = await fetch(`${SUPABASE_URL}/auth/v1/otp?redirect_to=${redirect}`, {
       method: "POST",
       headers: { apikey: KEY, "Content-Type": "application/json" },
@@ -138,7 +141,7 @@ export const auth = {
     if (!res.ok) throw new Error(await errorText(res));
   },
   async resetPassword(email: string) {
-    const redirect = encodeURIComponent(window.location.origin + "/");
+    const redirect = encodeURIComponent(appUrl());
     const res = await fetch(`${SUPABASE_URL}/auth/v1/recover?redirect_to=${redirect}`, {
       method: "POST",
       headers: { apikey: KEY, "Content-Type": "application/json" },
@@ -166,7 +169,7 @@ export const auth = {
     }
   },
   oauthUrl(provider: string) {
-    const redirect = encodeURIComponent(window.location.origin + "/");
+    const redirect = encodeURIComponent(appUrl());
     const scopes = provider === "azure" ? "&scopes=email" : "";
     return `${SUPABASE_URL}/auth/v1/authorize?provider=${provider}${scopes}&redirect_to=${redirect}`;
   },
