@@ -15,7 +15,9 @@ const Portfolio = page(dashboards, "Portfolio"), HotelOverview = page(dashboards
 const Hotels = page(admin, "Hotels"), Users = page(admin, "Users"), Company = page(admin, "Company"), Settings = page(admin, "Settings");
 const Reports = page(reports, "Reports"), Snapshot = page(reports, "Snapshot");
 const Schedule = page(workforce, "Schedule"), TimeClock = page(workforce, "TimeClock"), Timesheets = page(workforce, "Timesheets"), Team = page(workforce, "Team");
-const Bills = page(finance, "Bills"), Vendors = page(finance, "Vendors"), Purchasing = page(finance, "Purchasing"), Banking = page(finance, "Banking"), Accounting = page(finance, "Accounting");
+const Bills = page(finance, "Bills"), Vendors = page(finance, "Vendors"), Purchasing = page(finance, "Purchasing"), Accounting = page(finance, "Accounting");
+const Banking = page(() => import("./pages/banking"), "Banking"), Checks = page(() => import("./pages/checks"), "Checks");
+const FinancialReports = page(() => import("./pages/finreports"), "FinancialReports"), BooksReview = page(() => import("./pages/booksreview"), "BooksReview");
 const Vault = page(compliance, "Vault"), Permits = page(compliance, "Permits"), Insurance = page(compliance, "Insurance");
 const Investors = page(capital, "Investors"), InvestorPortal = page(capital, "InvestorPortal"), LoanPackage = page(capital, "LoanPackage"), PfsPage = page(capital, "PfsPage"), Construction = page(capital, "Construction");
 const AskAI = page(intelligence, "AskAI"), PdfFiller = page(intelligence, "PdfFiller");
@@ -128,7 +130,7 @@ const I = {
   bill: "M6 3h12v18l-3-2-3 2-3-2-3 2zM9 8h6M9 12h6", bank: "M3 10l9-6 9 6M5 10v8M9 10v8M15 10v8M19 10v8M3 20h18", ledger: "M4 19V5M4 19h16M8 15l3-4 3 2 5-6", store: "M4 8l2-4h12l2 4M4 8v12h16V8M4 8h16M9 20v-6h6v6", cart: "M3 4h2l2 11h11l2-8H6M9 20a1 1 0 1 0 0-.01M17 20a1 1 0 1 0 0-.01",
   shield: "M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z", badge: "M12 3l2.5 5 5.5.8-4 3.9.9 5.5L12 15.6 7.1 18.2l.9-5.5-4-3.9 5.5-.8z", folder: "M3 6h6l2 2h10v11H3z", map: "M9 4l6 2 6-2v14l-6 2-6-2-6 2V6zM9 4v14M15 6v14",
   pie: "M12 3v9h9a9 9 0 1 1-9-9zM14 3.5A8 8 0 0 1 20.5 10H14z", zip: "M6 3h9l4 4v14H6zM10 3v2M10 7v2M10 11v2M10 15h2v3h-2z", user: "M12 8a4 4 0 1 0 0-.01M4 21a8 8 0 0 1 16 0", crane: "M4 21h16M6 21V5l8-2v4M6 5h14M18 5v6M17 11h2v3h-2zM10 21v-6h4v6",
-  pdf: "M6 3h9l4 4v14H6zM9 13h2a1.5 1.5 0 0 0 0-3H9v6M14 10v6", hotel: "M5 3h14v18H5zM9 7h2M13 7h2M9 11h2M13 11h2M10 21v-4h4v4", book: "M4 5a2 2 0 0 1 2-2h14v16H6a2 2 0 0 0-2 2zM4 19V5", palette: "M12 3a9 9 0 1 0 0 18 3 3 0 0 1 0-6h2a7 7 0 0 0 7-7c0-2.8-4-5-9-5z",
+  pdf: "M6 3h9l4 4v14H6zM9 13h2a1.5 1.5 0 0 0 0-3H9v6M14 10v6", check: "M2 7h20v11H2zM5 14h7M15 14h4M5 10.5h4", report: "M5 3h14v18H5zM8 8h8M8 12h8M8 16h5", review: "M5 3h14v18H5zM8.5 12l2.5 2.5 4.5-4.5", hotel: "M5 3h14v18H5zM9 7h2M13 7h2M9 11h2M13 11h2M10 21v-4h4v4", book: "M4 5a2 2 0 0 1 2-2h14v16H6a2 2 0 0 0-2 2zM4 19V5", palette: "M12 3a9 9 0 1 0 0 18 3 3 0 0 1 0-6h2a7 7 0 0 0 7-7c0-2.8-4-5-9-5z",
 };
 const isInvestorOnly = (ctx: Ctx) => ctx.membership.roles.key === "investor";
 const NAV: { group: string; items: NavItem[] }[] = [
@@ -151,8 +153,11 @@ const NAV: { group: string; items: NavItem[] }[] = [
   ] },
   { group: "Finance", items: [
     { id: "bills", label: "Bills & Bill Pay", module: "finance", icon: I.bill },
-    { id: "banking", label: "Banking & Reconciliation", module: "finance", icon: I.bank },
+    { id: "banking", label: "Banking", module: "finance", icon: I.bank },
+    { id: "checks", label: "Checks", module: "finance", icon: I.check },
     { id: "accounting", label: "Accounting & Budget", module: "finance", icon: I.ledger },
+    { id: "fin-reports", label: "Financial Reports", module: "finance", icon: I.report },
+    { id: "books-review", label: "Books Review", module: "finance", min: "edit", icon: I.review },
     { id: "refunds", label: "Refunds", module: "finance", icon: I.bill },
     { id: "vendors", label: "Vendors", module: "finance", icon: I.store },
     { id: "purchasing", label: "Purchasing", module: "purchasing", icon: I.cart },
@@ -214,6 +219,9 @@ function Shell({ ctx, session }: { ctx: Ctx; session: Session }) {
       case "team": return <Team ctx={ctx} />;
       case "bills": return <Bills ctx={ctx} />;
       case "banking": return <Banking ctx={ctx} />;
+      case "checks": return <Checks ctx={ctx} />;
+      case "fin-reports": return <FinancialReports ctx={ctx} key={window.location.hash} />;
+      case "books-review": return <BooksReview ctx={ctx} />;
       case "accounting": return <Accounting ctx={ctx} />;
       case "vendors": return <Vendors ctx={ctx} />;
       case "purchasing": return <Purchasing ctx={ctx} />;

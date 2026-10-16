@@ -6,47 +6,8 @@ import { readBankStatement, documentText, BankParse, parseCsv } from "../lib/par
 import { extractInvoice } from "../lib/extract";
 import { QuickBooks } from "./quickbooks";
 
-type Gl = { id: string; hotel_id: string | null; number: string; name: string; full_name: string; type: string; section: string | null; active: boolean;
-  parent_id: string | null; qbo_type: string | null; detail_type: string | null; system_key: string | null; template_id: string | null };
-type Vendor = { id: string; name: string; dba: string | null; category: string | null; contact_name: string | null; email: string | null; phone: string | null; address: string | null;
-  payment_terms: string | null; default_gl: string | null; remit_method: string; w9_on_file: boolean; tax_id_last4: string | null; is_1099: boolean; status: string; notes: string | null; data_source: string };
-type Bill = { id: string; hotel_id: string; vendor_id: string | null; po_id: string | null; invoice_no: string | null; invoice_date: string | null; due_date: string | null; amount: number;
-  gl_account_id: string | null; description: string | null; status: string; file_path: string | null; approved_at: string | null; paid_at: string | null; scheduled_for: string | null;
-  payment_method: string | null; payment_ref: string | null; decision_note: string | null; data_source: string; source: string };
-type BankAcct = { id: string; hotel_id: string; name: string; institution: string | null; last4: string | null; kind: string; feed: string; balance: number | null; balance_as_of: string | null; last_synced_at: string | null; data_source: string };
-
-const BILL_STATUS: Record<string, [string, "good" | "warn" | "bad" | "info" | "mute"]> = {
-  draft: ["Draft", "mute"], pending_approval: ["Waiting for approval", "warn"], approved: ["Approved · to pay", "info"], scheduled: ["Payment scheduled", "info"],
-  paid: ["Paid", "good"], rejected: ["Rejected", "bad"], void: ["Void", "mute"],
-};
-const sanitize = (n: string) => n.replace(/[^\w.\- ]+/g, "_");
-function useLookups(ctx: Ctx) {
-  return useAsync(async () => {
-    const [gl, vendors] = await Promise.all([
-      db.getAll<Gl>(`gl_accounts?select=id,hotel_id,number,name,full_name,type,section,active,parent_id,qbo_type,detail_type,system_key,template_id&tenant_id=eq.${ctx.tenant.id}&order=number.asc,id.asc`),
-      db.getAll<Vendor>(`vendors?select=*&tenant_id=eq.${ctx.tenant.id}&order=name.asc,id.asc`),
-    ]);
-    return { gl, vendors };
-  }, [ctx.tenant.id]);
-}
-const glLabel = (g?: Gl) => (g ? `${g.number} · ${g.full_name || g.name}${g.active ? "" : " (Inactive)"}` : "—");
-// Each hotel has its own chart of accounts (hotel_id = that hotel); hotel_id = null is the company template.
-const glOf = (gl: Gl[] | undefined, hotelId: string | null | undefined) => (gl || []).filter((g) => (hotelId ? g.hotel_id === hotelId : !g.hotel_id));
-/** Accounts that can be picked for new entries: active ones (plus the one already chosen, so an old record still shows its account). */
-const glPick = (gl: Gl[] | undefined, hotelId: string | null | undefined, current?: string | null) =>
-  glOf(gl, hotelId).filter((g) => g.active || g.id === current).sort((a, b) => (a.full_name || a.name).localeCompare(b.full_name || b.name));
-/** The hotel's own account matching an id (a template default such as a vendor's default account maps through the template link or the name). */
-const ownGl = (gl: Gl[] | undefined, id: string | null | undefined, hotelId: string) => {
-  const g = (gl || []).find((x) => x.id === id);
-  if (!g) return "";
-  if (g.hotel_id === hotelId) return g.id;
-  const mine = (gl || []).find((x) => x.hotel_id === hotelId && (x.template_id === g.id || (g.system_key && x.system_key === g.system_key) || x.full_name.toLowerCase() === g.full_name.toLowerCase()));
-  return mine && mine.active ? mine.id : "";
-};
-async function openFile(path: string) {
-  const url = await storage.signedUrl("vault", path, 120);
-  window.open(url, "_blank", "noopener");
-}
+import { Gl, Vendor, Bill, BankAcct, BILL_STATUS, sanitize, useLookups, glLabel, glOf, glPick, ownGl, openFile } from "../lib/books";
+export { useLookups, glLabel, glOf, glPick };
 
 // ======================= Bills & bill pay =======================
 export function Bills({ ctx }: { ctx: Ctx }) {
@@ -248,7 +209,7 @@ function BillForm({ ctx, vendors, gl, hotelId, onClose }: { ctx: Ctx; vendors: V
 function PayModal({ ctx, bills, onClose }: { ctx: Ctx; bills: Bill[]; onClose: (done?: string) => void }) {
   const hotels = [...new Set(bills.map((b) => b.hotel_id))];
   const accts = useAsync(() => db.get<BankAcct>(`bank_accounts?select=*&hotel_id=in.(${hotels.join(",")})`), [hotels.join()]);
-  const [f, setF] = useState({ method: "ach", date: todayIn(), ref: "" });
+  const [f, setF] = useState({ method: "ach", date: todayIn(), ref: "", printLater: true });
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
   async function pay(e: React.FormEvent) {
@@ -259,9 +220,13 @@ function PayModal({ ctx, bills, onClose }: { ctx: Ctx; bills: Bill[]; onClose: (
       for (const h of hotels) {
         const acct = accts.data?.find((a) => a.hotel_id === h && a.kind === "operating") || accts.data?.find((a) => a.hotel_id === h);
         if (!acct) throw new Error(`${ctx.hotels.find((x) => x.id === h)?.name} has no bank account set up yet (Banking page).`);
-        total += await db.rpc<number>("pay_bills", { p_ids: bills.filter((b) => b.hotel_id === h).map((b) => b.id), p_bank: acct.id, p_method: f.method, p_date: f.date, p_ref: f.ref || null });
+        const ids = bills.filter((b) => b.hotel_id === h).map((b) => b.id);
+        if (f.method === "check" && f.printLater) total += await db.rpc<number>("pay_bills_by_check", { p_ids: ids, p_bank: acct.id, p_date: f.date });
+        else total += await db.rpc<number>("pay_bills", { p_ids: ids, p_bank: acct.id, p_method: f.method, p_date: f.date, p_ref: f.ref || null });
       }
-      onClose(`${total} bill${total === 1 ? "" : "s"} ${f.date > todayIn() ? "scheduled" : "recorded as paid"}. The bank match happens automatically when the payment clears.`);
+      onClose(f.method === "check" && f.printLater
+        ? `${total} check${total === 1 ? "" : "s"} added to the print queue (one per vendor). Print them under Checks.`
+        : `${total} bill${total === 1 ? "" : "s"} ${f.date > todayIn() ? "scheduled" : "recorded as paid"}. The bank match happens automatically when the payment clears.`);
     } catch (e: any) { setErr(e.message); } finally { setBusy(false); }
   }
   return (
@@ -272,7 +237,8 @@ function PayModal({ ctx, bills, onClose }: { ctx: Ctx; bills: Bill[]; onClose: (
         <Field label="Method" id="pM"><select id="pM" value={f.method} onChange={(e) => setF({ ...f, method: e.target.value })}>
           <option value="ach">ACH</option><option value="check">Check</option><option value="card">Card</option><option value="wire">Wire</option><option value="autopay">Autopay</option></select></Field>
         <Field label="Payment date" id="pDt"><input id="pDt" type="date" required value={f.date} onChange={(e) => setF({ ...f, date: e.target.value })} /></Field>
-        <Field label={f.method === "check" ? "Check number" : "Reference (optional)"} id="pRef"><input id="pRef" value={f.ref} onChange={(e) => setF({ ...f, ref: e.target.value })} /></Field>
+        {f.method === "check" && <div className="field"><span>Checks</span><label className="check-row" htmlFor="pPL"><input id="pPL" type="checkbox" checked={f.printLater} onChange={(e) => setF({ ...f, printLater: e.target.checked })} /> Print checks (one per vendor, from the print queue)</label></div>}
+        {!(f.method === "check" && f.printLater) && <Field label={f.method === "check" ? "Hand-written check number" : "Reference (optional)"} id="pRef"><input id="pRef" value={f.ref} onChange={(e) => setF({ ...f, ref: e.target.value })} /></Field>}
       </div>
       {err && <Notice kind="bad">{err}</Notice>}
     </Modal>
@@ -286,6 +252,16 @@ export function Vendors({ ctx }: { ctx: Ctx }) {
   // 1099s count what was actually paid in the calendar year (by payment date), not what was billed
   const yr = todayIn().slice(0, 4);
   const spend = useAsync(() => db.getAll<any>(`bills?select=id,vendor_id,amount,status,paid_at&tenant_id=eq.${ctx.tenant.id}&status=eq.paid&paid_at=gte.${yr}-01-01&paid_at=lte.${yr}-12-31&order=id.asc`), [ctx.tenant.id]);
+  // the money bar: unpaid bills (overdue / not yet due) and what was paid in the last 30 days
+  const money = useAsync(async () => {
+    const [open, paid] = await Promise.all([
+      db.getAll<any>(`bills?select=amount,due_date&tenant_id=eq.${ctx.tenant.id}&status=in.(approved,scheduled)&order=id.asc`, 20000),
+      db.getAll<any>(`bills?select=amount&tenant_id=eq.${ctx.tenant.id}&status=eq.paid&paid_at=gte.${addDays(todayIn(), -30)}&order=id.asc`, 20000),
+    ]);
+    const t = todayIn(), sum = (xs: any[]) => xs.reduce((a, b) => a + Number(b.amount), 0);
+    const od = open.filter((b) => b.due_date && b.due_date < t);
+    return { overdue: sum(od), nOver: od.length, open: sum(open) - sum(od), nOpen: open.length - od.length, paid: sum(paid), nPaid: paid.length };
+  }, [ctx.tenant.id]);
   const [edit, setEdit] = useState<Partial<Vendor> | null>(null);
   const [search, setSearch] = useState("");
   const [msg, setMsg] = useState<{ kind: "good" | "bad"; text: string } | null>(null);
@@ -309,6 +285,13 @@ export function Vendors({ ctx }: { ctx: Ctx }) {
           <button className="btn" onClick={() => downloadFile("vendors-1099.csv", toCsv([["Vendor", "1099", "W-9 on file", "Tax ID (last 4)", "Paid YTD"], ...(lk.data?.vendors || []).filter((v) => v.is_1099).map((v) => [v.name, "Yes", v.w9_on_file ? "Yes" : "No", v.tax_id_last4, ytd(v.id).toFixed(2)])]))}>1099 report</button>
           {canEdit && <button className="btn pri" onClick={() => setEdit({ name: "", remit_method: "ach", payment_terms: "Net 30", status: "active", w9_on_file: false, is_1099: false })}>Add vendor</button>}
         </>} />
+      {money.data && (
+        <div className="moneybar" aria-label="Bills summary">
+          <a href="#bills" className="mb over" style={{ flexGrow: Math.max(1, money.data.overdue) }}><b>{usd(money.data.overdue, 2)}</b><span>{money.data.nOver} overdue</span></a>
+          <a href="#bills" className="mb open" style={{ flexGrow: Math.max(1, money.data.open) }}><b>{usd(money.data.open, 2)}</b><span>{money.data.nOpen} open bills</span></a>
+          <a href="#fin-reports?r=billpay" className="mb paid" style={{ flexGrow: Math.max(1, money.data.paid) }}><b>{usd(money.data.paid, 2)}</b><span>{money.data.nPaid} paid · last 30 days</span></a>
+        </div>
+      )}
       <div className="toolbar"><input type="search" aria-label="Search vendors" placeholder="Search vendors" value={search} onChange={(e) => setSearch(e.target.value)} style={{ minWidth: 260 }} /></div>
       {msg && <Notice kind={msg.kind} onClose={() => setMsg(null)}>{msg.text}</Notice>}
       {lk.loading && !lk.data && <Loading />}
@@ -469,7 +452,8 @@ export function Purchasing({ ctx }: { ctx: Ctx }) {
 
 // ======================= Banking & reconciliation =======================
 const MATCH_LABEL: Record<string, string> = { deposit: "Deposit", deposit_batch: "Card batch", deposit_amex: "Amex (net of fees)", bill: "Bill payment", gl: "Assigned to account" };
-export function Banking({ ctx }: { ctx: Ctx }) {
+/** Statements, bank feeds, deposits not yet in the bank and auto-matching (the Banking page's last tab). */
+export function BankReconcile({ ctx, embedded }: { ctx: Ctx; embedded?: boolean }) {
   const canEdit = ctx.can("finance", "edit");
   const accts = useAsync(async () => {
     const [a, un] = await Promise.all([
@@ -507,7 +491,7 @@ export function Banking({ ctx }: { ctx: Ctx }) {
     setBusy(true);
     try {
       const r = await db.rpc<any>("import_bank_transactions", { p_account: acct.id, p_rows: preview.rows, p_meta: { file_name: preview.file.name, format: preview.format, from: preview.from, to: preview.to, opening: preview.opening ?? null, closing: preview.closing ?? null, ms: preview.ms } });
-      const matched = r.matched_deposits + r.matched_batches + r.matched_amex + r.matched_bills;
+      const matched = r.matched_deposits + r.matched_batches + r.matched_amex + r.matched_bills + (r.matched_checks || 0);
       setMsg({ kind: "good", text: `${r.added} new transactions saved${r.duplicates ? ` (${r.duplicates} already imported, skipped)` : ""}. ${matched} matched automatically.` });
       setPreview(null); tx.reload(); accts.reload();
     } catch (e: any) { setMsg({ kind: "bad", text: e.message }); } finally { setBusy(false); }
@@ -517,8 +501,8 @@ export function Banking({ ctx }: { ctx: Ctx }) {
     setBusy(true);
     try {
       const r = await db.rpc<any>("auto_reconcile", { p_account: acct.id });
-      const n = r.matched_deposits + r.matched_batches + r.matched_amex + r.matched_bills;
-      setMsg({ kind: n ? "good" : "info", text: n ? `Matched ${n}: ${r.matched_deposits} deposits, ${r.matched_batches} card batches, ${r.matched_amex} Amex, ${r.matched_bills} bill payments.` : "Nothing new to match. What's left needs a quick decision below." });
+      const n = r.matched_deposits + r.matched_batches + r.matched_amex + r.matched_bills + (r.matched_checks || 0);
+      setMsg({ kind: n || r.rules_applied ? "good" : "info", text: n || r.rules_applied ? `Matched ${n}: ${r.matched_deposits} deposits, ${r.matched_batches} card batches, ${r.matched_amex} Amex, ${r.matched_bills} bill payments, ${r.matched_checks || 0} checks.${r.rules_applied ? ` Rules categorised ${r.rules_applied}.` : ""} Post them on Bank transactions.` : "Nothing new to match. What's left is waiting on Bank transactions." });
       tx.reload(); accts.reload();
     } catch (e: any) { setMsg({ kind: "bad", text: e.message }); } finally { setBusy(false); }
   }
@@ -531,10 +515,12 @@ export function Banking({ ctx }: { ctx: Ctx }) {
 
   return (
     <>
-      <PageHead eyebrow="Finance" title="Banking & Reconciliation" desc="Bank feeds where available, any statement file where not. Deposits match to the night audit automatically."
-        actions={<>
-          {ctx.can("finance", "approve") && <button className="btn" onClick={() => setAddAcct({ hotel_id: ctx.hotels.find((h) => h.status === "operating")?.id, name: "", institution: "", last4: "", kind: "operating" })}>Add bank account</button>}
-        </>} />
+      {!embedded && <PageHead eyebrow="Finance" title="Banking & Reconciliation" desc="Bank feeds where available, any statement file where not. Deposits match to the night audit automatically." />}
+      <div className="toolbar">
+        <span className="small muted">Bring transactions in from a bank feed or a statement file; deposits and checks match automatically, rules categorise the rest.</span>
+        <span className="grow" />
+        {ctx.can("finance", "approve") && <button className="btn" onClick={() => setAddAcct({ hotel_id: ctx.hotels.find((h) => h.status === "operating")?.id, name: "", institution: "", last4: "", kind: "operating" })}>Add bank account</button>}
+      </div>
       {accts.loading && !accts.data && <Loading />}
       {accts.error && <ErrorBox error={accts.error} retry={accts.reload} />}
       {accts.data && !accts.data.a.length && <Empty title="No bank accounts yet.">Add each hotel's operating account to start reconciling.</Empty>}
@@ -551,7 +537,17 @@ export function Banking({ ctx }: { ctx: Ctx }) {
             ))}
           </div>
           <div className="sp" />
-          <div className="grid g-2-1">
+          <div className={embedded ? "grid g2" : "grid g-2-1"}>
+            {embedded ? (
+              <div className="grid" style={{ alignContent: "start" }}>
+                {msg && <Notice kind={msg.kind === "info" ? "info" : msg.kind} onClose={() => setMsg(null)}>{msg.text}</Notice>}
+                <Card title="Match and categorise now" note={acct.name}>
+                  <p className="small" style={{ marginTop: 0 }}>Matches waiting bank lines to night-audit deposits, card batches, Amex settlements, bill payments and printed checks, then runs your rules.</p>
+                  {canEdit && <button className="btn pri" disabled={busy} onClick={autoMatch}>Auto-match now</button>}
+                </Card>
+                <BankFeedCard ctx={ctx} acct={acct} onChanged={() => { tx.reload(); accts.reload(); }} />
+              </div>
+            ) : (
             <div>
               <div className="toolbar">
                 <Seg label="Show" value={view} onChange={setView} options={[["unmatched", "To review"], ["matched", "Matched"], ["all", "All"]]} />
@@ -578,8 +574,9 @@ export function Banking({ ctx }: { ctx: Ctx }) {
                 ) : <Empty title={view === "unmatched" ? "Everything is reconciled." : "No transactions."} />}
               </Card>
             </div>
+            )}
             <div className="grid" style={{ alignContent: "start" }}>
-              <BankFeedCard ctx={ctx} acct={acct} onChanged={() => { tx.reload(); accts.reload(); }} />
+              {!embedded && <BankFeedCard ctx={ctx} acct={acct} onChanged={() => { tx.reload(); accts.reload(); }} />}
               {canEdit && (
                 <Card title="Upload a statement">
                   <div className="drop" onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); e.dataTransfer.files[0] && onFile(e.dataTransfer.files[0]); }}>
@@ -1221,3 +1218,6 @@ function loadPlaid(): Promise<any> {
   });
   return plaidLoading;
 }
+
+/** Older route name. */
+export const Banking = BankReconcile;

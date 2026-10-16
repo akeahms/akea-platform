@@ -307,3 +307,55 @@ table.budget td { padding: 4px 6px; } table.budget th { padding: 8px 6px; }
 .suggest button { border: 1px solid var(--line-strong); background: var(--surface); border-radius: 999px; padding: 7px 14px; font-size: 13px; cursor: pointer; }
 code.addr { font-size: 13px; background: var(--surface-2); padding: 3px 8px; border-radius: 6px; white-space: nowrap; }
 .snap-frame { width: 100%; height: 1500px; border: 0; display: block; border-radius: 0 0 16px 16px; background: var(--bg); }
+
+/* ---------- books: bank review, checks, reports ---------- */
+table.btx tbody tr { cursor: pointer; }
+table.btx tr.open td { background: color-mix(in srgb, var(--accent) 6%, var(--surface)); border-bottom: 0; }
+table.btx tr.detail { cursor: default; }
+table.btx tr.detail td { background: color-mix(in srgb, var(--accent) 6%, var(--surface)); padding: 4px 16px 18px; }
+table.btx tr.detail:hover td { background: color-mix(in srgb, var(--accent) 6%, var(--surface)); }
+select.sm, input.sm { min-height: 32px !important; padding: 4px 8px !important; font-size: 13px !important; max-width: 260px; }
+select.need { border-color: color-mix(in srgb, var(--warn) 55%, var(--line-strong)) !important; color: var(--warn); }
+.txd { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); gap: 22px; }
+@media (max-width: 1000px) { .txd { grid-template-columns: 1fr; } }
+.txd-side { border-left: 1px solid var(--line); padding-left: 18px; display: flex; flex-direction: column; gap: 6px; }
+.sugg { text-align: left; border: 1px solid var(--line); background: var(--surface); border-radius: 10px; padding: 8px 12px; font: inherit; font-size: 13px; color: var(--fg); cursor: pointer; }
+.sugg:hover { border-color: var(--accent); }
+.sugg.on { background: var(--good-soft); border-color: transparent; color: var(--good); cursor: default; }
+.bulkbar { position: sticky; bottom: 12px; z-index: 6; margin-top: 14px; display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 10px 16px; border-radius: 14px;
+  background: var(--brand); color: var(--brand-ink); box-shadow: 0 12px 30px rgba(20,36,31,.28); }
+.bulkbar .btn { background: transparent; color: var(--brand-ink); border-color: rgba(237,230,216,.35); }
+.bulkbar .btn:hover { background: rgba(255,255,255,.08); }
+.bulkbar .btn.pri { background: var(--brand-ink); color: var(--brand); border-color: var(--brand-ink); }
+.bulkbar .link { color: var(--accent-light); }
+.bulkbar .grow { flex: 1; }
+td.warnrow { background: var(--bad-soft) !important; color: var(--bad); font-size: 13px; font-weight: 500; }
+.layouts { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
+.layout { border: 1px solid var(--line); border-radius: 12px; padding: 12px; display: flex; flex-direction: column; align-items: center; gap: 8px; cursor: pointer; text-align: center; background: var(--surface); }
+.layout.on { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent); }
+.layout input { position: absolute; opacity: 0; pointer-events: none; }
+.layout .sheet { width: 64px; height: 84px; border: 1px solid var(--line-strong); border-radius: 3px; display: grid; grid-template-rows: repeat(3, 1fr); background: #fff; overflow: hidden; }
+.layout .sheet i { font-style: normal; font-size: 8px; display: grid; place-items: center; border-bottom: 1px dashed var(--line-strong); color: var(--fg-3); }
+.layout .sheet i:last-child { border-bottom: 0; }
+.layout .sheet i.chk { background: color-mix(in srgb, var(--accent) 22%, #fff); color: var(--fg); font-weight: 600; }
+.li.rep { width: 100%; border: 0; border-bottom: 1px solid var(--line); background: none; font: inherit; color: inherit; text-align: left; cursor: pointer; align-items: center; }
+.li.rep:hover { background: var(--surface-2); }
+.li.rep .r { color: var(--fg-3); font-size: 20px; }
+.rep-head { text-align: center; padding: 18px 18px 12px; border-bottom: 1px solid var(--line); }
+.rep-co { font-size: 13px; color: var(--fg-2); }
+.rep-name { font: italic 500 26px/1.2 var(--serif); margin: 2px 0; }
+table.report td, table.report th { padding: 7px 16px; }
+table.report tr.section td { font-weight: 600; background: var(--surface-2); }
+table.report tr.sub td { font-weight: 500; color: var(--fg-2); }
+table.report tr.total td { font-weight: 600; border-top: 1px solid var(--line-strong); }
+table.report tr.grand td { font-weight: 700; border-top: 2px solid var(--fg); border-bottom: 3px double var(--fg); }
+.moneybar { display: flex; gap: 4px; margin-bottom: 16px; border-radius: 12px; overflow: hidden; }
+.moneybar .mb { flex-basis: 0; min-width: 150px; padding: 12px 16px; display: flex; flex-direction: column; color: #fff; text-decoration: none; }
+.moneybar .mb b { font-size: 20px; font-weight: 500; font-variant-numeric: tabular-nums; }
+.moneybar .mb span { font-size: 12px; letter-spacing: .04em; text-transform: uppercase; opacity: .9; }
+.moneybar .over { background: var(--bad); } .moneybar .open { background: var(--fg-3); } .moneybar .paid { background: var(--good); }
+.moneybar .mb:hover { filter: brightness(1.08); text-decoration: none; }
+@media print {
+  .bulkbar, .no-print-head .acts, .no-print-head .link { display: none !important; }
+  table.report td, table.report th { padding: 4px 10px; font-size: 11px; }
+}
