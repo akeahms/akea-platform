@@ -1,4 +1,4 @@
-import { appName } from "./lib/app";
+import { appName, currentLogo } from "./lib/app";
 import React, { useEffect, useState } from "react";
 import { auth, mfa, Factor } from "./lib/sb";
 import { Card, PageHead, Pill, Loading, ErrorBox, Empty } from "./ui";
@@ -72,7 +72,7 @@ export function MfaGate({ required, email, onDone }: { required: boolean; email:
   return (
     <div className="center">
       <form className="card pad mfa" onSubmit={submit}>
-        <img src="logo.png" alt="" className="auth-logo-sm" style={{ display: "block" }} />
+        <img src={currentLogo()} alt="" className="auth-logo-sm" style={{ display: "block" }} />
         {!factors && !err && <Loading />}
         {enroll && (
           <>

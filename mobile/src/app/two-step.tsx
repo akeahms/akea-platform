@@ -3,7 +3,7 @@ import React, { useEffect, useState } from "react";
 import { StyleSheet, Text, TextInput, View, Pressable } from "react-native";
 import { mfa, auth } from "@/lib/sb";
 import { Button, ErrorText, Loading } from "@/components/ui";
-import { brand, space } from "@/theme";
+import { brand, space, serif } from "@/theme";
 
 export default function TwoStep() {
   const [factor, setFactor] = useState<string | null | undefined>(undefined);
@@ -36,9 +36,9 @@ export default function TwoStep() {
   );
 }
 const styles = StyleSheet.create({
-  wrap: { flex: 1, justifyContent: "center", padding: space.xl, gap: space.lg, backgroundColor: "#FBF7EE" },
-  title: { fontSize: 28, fontWeight: "700", color: "#1E2430" },
-  sub: { fontSize: 15, color: "#4A5262", lineHeight: 21 },
-  code: { backgroundColor: "#FFFFFF", borderRadius: 14, borderWidth: 1, borderColor: "#E7E2D6", paddingVertical: 16, fontSize: 30, letterSpacing: 10, textAlign: "center", color: "#1E2430", fontVariant: ["tabular-nums"] },
-  link: { color: brand.accent, fontWeight: "600", fontSize: 15, textAlign: "center" },
+  wrap: { flex: 1, justifyContent: "center", padding: space.xl, gap: space.lg, backgroundColor: brand.paper },
+  title: { fontSize: 32, fontFamily: serif, fontStyle: "italic", fontWeight: "400", color: brand.ink },
+  sub: { fontSize: 15, color: brand.ink2, lineHeight: 21 },
+  code: { backgroundColor: "#FBF9F4", borderRadius: 14, borderWidth: 1, borderColor: "#CFC8BB", paddingVertical: 16, fontSize: 30, letterSpacing: 10, textAlign: "center", color: brand.ink, fontVariant: ["tabular-nums"] },
+  link: { color: brand.accentText, fontWeight: "600", fontSize: 15, textAlign: "center" },
 });

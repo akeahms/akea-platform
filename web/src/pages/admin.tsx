@@ -361,23 +361,33 @@ export function Settings({ ctx }: { ctx: Ctx }) {
     e.preventDefault();
     setMsg(null);
     try {
-      await db.update("tenants", `id=eq.${t.id}`, { brand_name: t.brand_name, accent_color: t.accent_color, logo_url: t.logo_url || null, email_sender: t.email_sender, custom_domain: t.custom_domain || null });
+      const https = (u?: string | null) => { const v = (u || "").trim(); if (v && !/^https:\/\//i.test(v)) throw new Error("Logo addresses must start with https://"); return v || null; };
+      await db.update("tenants", `id=eq.${t.id}`, { brand_name: t.brand_name, product_name: (t.product_name || "").trim() || null, accent_color: t.accent_color, dark_color: t.dark_color || null,
+        logo_url: https(t.logo_url), logo_light_url: https(t.logo_light_url), email_sender: t.email_sender });
       setMsg({ kind: "info", text: "Saved. Everyone in this company now sees the new branding." });
       ctx.reload();
     } catch (err: any) { setMsg({ kind: "bad", text: err.message }); }
   }
   return (
     <>
-      <PageHead eyebrow="Admin" title="White-label Settings" desc="What this company's people see: name, logo, color, web address and email sender." />
+      <PageHead eyebrow="Admin" title="White-label Settings" desc="What this company's people see: names, logos, colors and email sender." />
       <form onSubmit={save}>
         <Card title="Brand">
           <div className="fgrid">
             <div className="field"><label htmlFor="bName">Display name</label><input id="bName" disabled={!canEdit} value={t.brand_name || ""} onChange={(e) => setT({ ...t, brand_name: e.target.value })} /></div>
+            <div className="field"><label htmlFor="bProduct">Software name</label><input id="bProduct" maxLength={60} disabled={!canEdit} value={t.product_name || ""} onChange={(e) => setT({ ...t, product_name: e.target.value })} placeholder={t.brand_name || t.name} /></div>
             <div className="field"><label htmlFor="bColor">Accent color</label>
-              <div className="color-row"><input id="bColor" type="color" disabled={!canEdit} value={t.accent_color || "#9A7432"} onChange={(e) => setT({ ...t, accent_color: e.target.value })} /><span className="num">{t.accent_color}</span></div></div>
+              <div className="color-row"><input id="bColor" type="color" disabled={!canEdit} value={t.accent_color || "#9C7A43"} onChange={(e) => setT({ ...t, accent_color: e.target.value })} /><span className="num">{t.accent_color}</span></div>
+              <span className="hint">Highlights, links, the selected menu item.</span></div>
+            <div className="field"><label htmlFor="bDark">Main dark color</label>
+              <div className="color-row"><input id="bDark" type="color" disabled={!canEdit} value={t.dark_color || "#14241F"} onChange={(e) => setT({ ...t, dark_color: e.target.value })} /><span className="num">{t.dark_color}</span></div>
+              <span className="hint">Side menu and main buttons. Pick a dark shade so white text stays readable.</span></div>
             <div className="field"><label htmlFor="bLogo">Logo image URL (leave empty for the default)</label><input id="bLogo" disabled={!canEdit} value={t.logo_url || ""} onChange={(e) => setT({ ...t, logo_url: e.target.value })} placeholder="https://…" /></div>
+            <div className="field"><label htmlFor="bLogoL">Logo for dark backgrounds (optional)</label><input id="bLogoL" disabled={!canEdit} value={t.logo_light_url || ""} onChange={(e) => setT({ ...t, logo_light_url: e.target.value })} placeholder="https://…" />
+              <span className="hint">A white or light version for the side menu. Without it, your logo shows on a light panel.</span></div>
             <div className="field"><label htmlFor="bEmail">Email sender</label><input id="bEmail" disabled={!canEdit} value={t.email_sender || ""} onChange={(e) => setT({ ...t, email_sender: e.target.value })} /></div>
-            <div className="field"><label htmlFor="bDomain">Custom web address</label><input id="bDomain" disabled={!canEdit} value={t.custom_domain || ""} onChange={(e) => setT({ ...t, custom_domain: e.target.value })} /></div>
+            <div className="field"><span>Custom web address</span><input value={t.custom_domain || "Not set up"} readOnly />
+              <span className="hint">Web addresses are connected by the platform team (they need DNS changes).</span></div>
             <div className="field"><span>Plan</span><input value={`${t.plan} · up to ${t.hotel_limit} hotels`} readOnly /></div>
           </div>
           {canEdit && <div className="acts" style={{ marginTop: 16 }}><button className="btn pri">Save branding</button></div>}

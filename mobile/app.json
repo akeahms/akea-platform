@@ -18,7 +18,7 @@
       "package": "com.akeahms.portal",
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#FBF7EE"
+        "backgroundColor": "#14241F"
       }
     },
     "plugins": [
@@ -28,8 +28,8 @@
         "expo-splash-screen",
         {
           "image": "./assets/splash-icon.png",
-          "imageWidth": 220,
-          "backgroundColor": "#FBF7EE"
+          "imageWidth": 240,
+          "backgroundColor": "#14241F"
         }
       ]
     ],

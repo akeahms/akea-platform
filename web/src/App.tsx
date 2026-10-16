@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { auth, onAuth, currentSession, Session, mfa } from "./lib/sb";
 import { SocialButtons, MfaGate, AccountSecurity } from "./security";
-import { loadContext, makeCan, Ctx, Membership, Hotel, appName, productName, loadBranding, Branding, safeLogo, safeColor } from "./lib/app";
+import { loadContext, makeCan, Ctx, Membership, Hotel, appName, productName, loadBranding, Branding, applyTheme, logoFor, lightLogoFor } from "./lib/app";
 import { AlertsPanel, useAlerts } from "./pages/compliance";
 import { Loading, ErrorBox } from "./ui";
 
@@ -41,8 +41,7 @@ function AuthScreen({ recovery, onRecovered }: { recovery: boolean; onRecovered:
   useEffect(() => {
     loadBranding().then((b) => {
       setBrand(b);
-      const c = safeColor(b?.accent_color);
-      if (c) document.documentElement.style.setProperty("--accent", c);
+      applyTheme(b);
       document.title = b?.product_name || "Sign in";
     });
   }, []);
@@ -80,12 +79,15 @@ function AuthScreen({ recovery, onRecovered }: { recovery: boolean; onRecovered:
   return (
     <div className="auth">
       <div className="auth-art" aria-hidden="true">
-        <img src={safeLogo(brand?.logo_url)} alt="" className="auth-logo" />
+        <div className="lockup">
+          <img src={logoFor(brand)} alt="" className="auth-logo" />
+          {/* the built-in wordmark carries its own line; a company with its own logo shows its software name */}
+          <div className="ruled">{brand?.logo_url ? brand?.product_name || "" : "AI Suite for Hotel Management Services"}</div>
+        </div>
         <p className="auth-quote">Every hotel, every number, one place.</p>
-        <span className="auth-foot">{brand?.product_name || "Hotel operations"}</span>
       </div>
       <form className="auth-card" onSubmit={submit}>
-        <img src={safeLogo(brand?.logo_url)} alt={brand?.brand_name || brand?.name || ""} className="auth-logo-sm" />
+        <img src={logoFor(brand)} alt={brand?.brand_name || brand?.name || ""} className="auth-logo-sm" />
         <h1>{title}</h1>
         {(mode === "in" || mode === "up") && <SocialButtons />}
         {mode === "up" && (
@@ -190,9 +192,9 @@ function Shell({ ctx, session }: { ctx: Ctx; session: Session }) {
   const [page, param] = route.split("/");
   const t = ctx.tenant;
   useEffect(() => {
-    if (safeColor(t.accent_color)) document.documentElement.style.setProperty("--accent", safeColor(t.accent_color)!);
+    applyTheme(t);
     document.title = productName(t);
-  }, [t.accent_color, t.brand_name, t.name, t.product_name]);
+  }, [t.accent_color, t.dark_color, t.brand_name, t.name, t.product_name]);
   useEffect(() => { setMenu(false); setBell(false); }, [route]);
   const items = NAV.flatMap((g) => g.items);
   const allowed = (id: string) => id === "account" || items.some((i) => i.id === id && allowedItem(ctx, i));
@@ -239,8 +241,8 @@ function Shell({ ctx, session }: { ctx: Ctx; session: Session }) {
     <div className="app">
       <aside className={"rail" + (menu ? " open" : "")} aria-label="Main menu">
         <div className="brand">
-          <img src={safeLogo(t.logo_url)} alt={t.brand_name || t.name} />
-          <span className="sub">Operations Platform</span>
+          {lightLogoFor(t) ? <img src={lightLogoFor(t)!} alt={t.brand_name || t.name} /> : <span className="plate"><img src={logoFor(t)} alt={t.brand_name || t.name} /></span>}
+          <span className="sub">{productName(t)}</span>
         </div>
         <nav className="nav">
           {NAV.map((g) => {

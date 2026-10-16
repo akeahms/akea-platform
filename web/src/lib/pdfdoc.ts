@@ -19,7 +19,7 @@ export async function buildPdf(opts: { title: string; subtitle?: string; brand?:
   const font = await doc.embedFont(StandardFonts.Helvetica);
   const bold = await doc.embedFont(StandardFonts.HelveticaBold);
   const hex = (h: string) => { const n = parseInt(h.replace("#", ""), 16); return rgb(((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255); };
-  const ink = hex("#1E2430"), muted = hex("#6B7383"), line = hex("#E4E6EB"), accent = hex(opts.accent || "#9A7432"), zebra = hex("#F6F7F9");
+  const ink = hex("#14241F"), muted = hex("#5F5A51"), line = hex("#E6DFD3"), accent = hex(opts.accent || "#9C7A43"), zebra = hex("#F7F4EE");
   const W = 612, H = 792, M = 50, CW = W - 2 * M;
   let page = doc.addPage([W, H]);
   let y = H - M;

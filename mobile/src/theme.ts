@@ -1,8 +1,12 @@
 import { Platform } from "react-native";
 import { Color } from "expo-router";
 
-// Brand accent (overridden by the company's white-label colour once loaded) + native semantic colours.
-export const brand = { accent: "#9A7432", accentSoft: "rgba(154,116,50,0.12)", good: "#1F7A4A", warn: "#9A5B00", bad: "#B4372D", info: "#2B5F96" };
+// Stone & Forest brand (bronze accent, forest ink, stone/paper grounds) + native semantic colours.
+export const brand = { accent: "#9C7A43", accentSoft: "rgba(156,122,67,0.12)", accentText: "#7A5D30", dark: "#14241F", onDark: "#EDE6D8",
+  paper: "#F5F2EC", stone: "#E4DED3", line: "#DDD5C7", ink: "#14241F", ink2: "#2E3F39", ink3: "#5F5A51",
+  good: "#2D6A4F", warn: "#8A5A12", bad: "#A63D2F", info: "#2E5A55" };
+/** The brand's display face: an italic serif close to the kit's Cormorant Garamond (system fonts, nothing to download). */
+export const serif = Platform.select({ ios: "Georgia", android: "serif", default: "Georgia" })!;
 export const colors = {
   label: Platform.select({ ios: Color.ios.label, android: Color.android.dynamic.onSurface, default: "#1E2430" })!,
   secondaryLabel: Platform.select({ ios: Color.ios.secondaryLabel, android: Color.android.dynamic.onSurfaceVariant, default: "#6B7383" })!,

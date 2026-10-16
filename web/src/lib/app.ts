@@ -5,6 +5,7 @@ export const LEVEL: Record<Level, number> = { none: 0, view: 1, edit: 2, approve
 
 export type Tenant = {
   id: string; name: string; slug: string; brand_name: string | null; logo_url: string | null; accent_color: string | null;
+  dark_color?: string | null; logo_light_url?: string | null;
   subdomain: string | null; custom_domain: string | null; email_sender: string | null; plan: string; hotel_limit: number; report_inbox?: string | null; product_name?: string | null;
 };
 /** The software's name as this company's people see it (white-label): Akea's is "Akea AI Suite"; other companies set their own. */
@@ -14,7 +15,8 @@ let APP_NAME = "the app";
 export const appName = () => APP_NAME;
 export const setAppName = (t?: Partial<Tenant> | null) => { APP_NAME = productName(t); };
 /** Public branding for the web address being used (sign-in page, before anyone has signed in). */
-export type Branding = { name?: string; brand_name?: string | null; product_name?: string; logo_url?: string | null; accent_color?: string | null };
+export type Branding = { name?: string; brand_name?: string | null; product_name?: string; logo_url?: string | null; logo_light_url?: string | null;
+  accent_color?: string | null; dark_color?: string | null };
 export async function loadBranding(): Promise<Branding | null> {
   try {
     const b = await db.rpc<Branding | null>("public_branding", { p_host: location.hostname });
@@ -26,6 +28,24 @@ export async function loadBranding(): Promise<Branding | null> {
 export const safeLogo = (u?: string | null, fallback = "logo.png") => (u && /^https:\/\//i.test(u) ? u : fallback);
 /** Only a #rrggbb colour is used as the accent. */
 export const safeColor = (c?: string | null) => (c && /^#[0-9a-f]{6}$/i.test(c) ? c : null);
+/** The company's colours on the page: accent (highlights) and dark colour (side menu, main buttons). Defaults are the
+ *  built-in Stone & Forest theme. */
+let LOGO = "logo.svg";
+/** The logo of the company whose theme is showing (for screens outside the main layout, e.g. two-step sign-in). */
+export const currentLogo = () => LOGO;
+export function applyTheme(b?: Branding | Partial<Tenant> | null) {
+  LOGO = logoFor(b);
+  const root = document.documentElement.style;
+  const accent = safeColor(b?.accent_color), dark = safeColor(b?.dark_color);
+  if (accent) root.setProperty("--accent", accent); else root.removeProperty("--accent");
+  if (dark) root.setProperty("--brand", dark); else root.removeProperty("--brand");
+  document.querySelector('meta[name="theme-color"]')?.setAttribute("content", dark || "#14241F");
+}
+/** Logo for light backgrounds; the built-in wordmark when the company hasn't set one. */
+export const logoFor = (b?: Branding | Partial<Tenant> | null) => safeLogo(b?.logo_url, "logo.svg");
+/** Logo for dark backgrounds: the light logo, else null (the page then shows the normal logo on a light plate). */
+export const lightLogoFor = (b?: Branding | Partial<Tenant> | null) =>
+  b?.logo_light_url && /^https:\/\//i.test(b.logo_light_url) ? b.logo_light_url : !b?.logo_url ? "logo-light.svg" : null;
 export type Hotel = {
   id: string; tenant_id: string; entity_id: string | null; name: string; brand_family: string | null; address: string | null;
   city: string | null; state: string | null; zip: string | null; rooms: number; str_id: string | null; property_code: string | null;

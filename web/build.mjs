@@ -17,13 +17,14 @@ rmSync("dist", { recursive: true, force: true });
 mkdirSync(APP, { recursive: true });
 cpSync("public", APP, { recursive: true });
 
-// the suite's security policy: the app, its Supabase project, Google Fonts, and Plaid (only used when connecting a bank)
+// the suite's security policy: the app, its Supabase project, and Plaid (only used when connecting a bank).
+// Fonts (Jost, Cormorant Garamond; OFL) are served from our own domain.
 const sb = new URL(SUPABASE_URL);
 const CSP = [
   "default-src 'self'",
   "script-src 'self' https://cdn.plaid.com",
-  "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
-  "font-src 'self' https://fonts.gstatic.com",
+  "style-src 'self' 'unsafe-inline'",
+  "font-src 'self'",
   `img-src 'self' data: blob: ${sb.origin} https:`,
   `connect-src 'self' ${sb.origin} https://*.plaid.com`,
   "frame-src https://cdn.plaid.com https://*.plaid.com blob:",
@@ -47,6 +48,7 @@ const result = await build({
   outdir: APP,
   metafile: true,
   jsx: "automatic",
+  external: ["fonts/*"],                             // self-hosted fonts are copied from public/fonts
   define: {
     __SUPABASE_URL__: JSON.stringify(SUPABASE_URL),
     __SUPABASE_KEY__: JSON.stringify(SUPABASE_KEY),

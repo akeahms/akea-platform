@@ -1,6 +1,6 @@
 // Builds the public company website (static pages) from site/content.json into dist/.
 // The suite itself lives at /app/ on the same domain. Page addresses match the old Wix site so links keep working.
-import { mkdirSync, readFileSync, writeFileSync, copyFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync, copyFileSync, cpSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -18,7 +18,7 @@ export function buildSite(out, { supabaseUrl, siteUrl = "https://akeahms.com", t
   const fn = `${supabaseUrl}/functions/v1/website`;
   const sb = new URL(supabaseUrl).origin;
   const csp = [
-    "default-src 'self'", "script-src 'self'", "style-src 'self' https://fonts.googleapis.com", "font-src https://fonts.gstatic.com",
+    "default-src 'self'", "script-src 'self'", "style-src 'self'", "font-src 'self'",
     `img-src 'self' data: ${sb}`, `connect-src ${sb}`, "object-src 'none'", "base-uri 'self'", "form-action 'none'", "frame-src 'none'",
   ].join("; ");
   const nav = [["/", "Home"], ["/about-us/", "About Us"], ["/portfolio/", "Portfolio"], ["/careers/", "Careers"], ["/contact-us/", "Contact Us"]];
@@ -55,9 +55,12 @@ export function buildSite(out, { supabaseUrl, siteUrl = "https://akeahms.com", t
 <meta property="og:url" content="${canonical}">
 <meta property="og:type" content="website">
 ${hero ? `<meta property="og:image" content="${img(hero)}">` : ""}
-<link rel="icon" href="${img(c.images.logo)}">
-<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap">
+<meta name="theme-color" content="#14241F">
+<link rel="icon" href="/brand/favicon.svg" type="image/svg+xml">
+<link rel="icon" href="/brand/favicon-32.png" sizes="32x32" type="image/png">
+<link rel="apple-touch-icon" href="/brand/apple-touch-icon.png">
+<link rel="preload" href="/fonts/jost.woff" as="font" type="font/woff" crossorigin>
+<link rel="preload" href="/fonts/cormorant-italic.woff" as="font" type="font/woff" crossorigin>
 <link rel="stylesheet" href="/site.css">
 <script src="/site.js" defer data-endpoint="${fn}"></script>
 </head>
@@ -65,19 +68,20 @@ ${hero ? `<meta property="og:image" content="${img(hero)}">` : ""}
 <a class="skip" href="#main">Skip to main content</a>
 <header class="top">
   <div class="wrap bar">
-    <a class="brand" href="/" aria-label="${esc(c.company)} home"><img src="${img(c.images.logo)}" alt="${esc(c.company)}" width="150" height="48"></a>
+    <a class="brand" href="/" aria-label="${esc(c.company)} home"><img src="/brand/wordmark.svg" alt="${esc(c.company)}" width="87" height="40"><span>Hotel Management<br>Services</span></a>
     <button class="menu" aria-expanded="false" aria-controls="nav" aria-label="Menu"><span></span><span></span><span></span></button>
     <nav id="nav" aria-label="Main">${navHtml}<a class="login" href="${appPath}">Login</a></nav>
   </div>
 </header>
 <main id="main">
-${hero ? `<section class="hero"><img class="hero-img" src="${img(hero)}" alt="" fetchpriority="high"><div class="wrap"><h1>${esc(heroTitle)}</h1><a class="btn light" href="/contact-us/">Let's Connect</a></div></section>` : ""}
+${hero ? `<section class="hero"><img class="hero-img" src="${img(hero)}" alt="" fetchpriority="high"><div class="wrap"><p class="eyebrow">${esc(title === "Home" ? "Hotel Management Services" : title)}</p><h1>${esc(heroTitle)}</h1><a class="btn light" href="/contact-us/">Let's Connect</a></div></section>` : ""}
 ${body}
 </main>
 <footer class="foot">
   <div class="wrap fgrid">
     <div>
-      <img src="${img(c.images.logoWhite)}" alt="${esc(c.company)}" width="150" height="48" loading="lazy">
+      <img src="/brand/wordmark-light.svg" alt="${esc(c.company)}" width="113" height="52" loading="lazy">
+      <p class="ruled">Hotel Management Services</p>
       <p>${esc(c.blurb)}</p>
       <p><a href="${c.phoneHref}">${esc(c.phone)}</a><br><a href="mailto:${c.email}">${esc(c.email)}</a></p>
     </div>
@@ -106,13 +110,13 @@ ${body}
     body: `
 <section class="wrap intro">${c.home.intro.map((p) => `<p>${esc(p)}</p>`).join("")}</section>
 <section class="brands" aria-label="Brands we operate"><div class="wrap">${c.images.brands.map((b) => `<img src="${img(b)}" alt="" loading="lazy">`).join("")}</div></section>
-<section class="wrap services"><h2>Our Services</h2><div class="cards">${c.home.services.map((s) => `
+<section class="wrap services"><p class="eyebrow">What we do</p><h2>Our Services</h2><div class="cards">${c.home.services.map((s) => `
   <article class="svc"><img src="${img(s.img)}" alt="${esc(s.alt)}" loading="lazy"><h3>${esc(s.title)}</h3><p>${esc(s.text)}</p></article>`).join("")}</div></section>`,
   }));
   // About
   write("about-us", page({
     path: "/about-us/", title: "About Us", description: `${c.about.title} Meet the ${c.company} team.`, hero: c.images.hero, heroTitle: c.about.title,
-    body: `<section class="wrap team"><h2>Our Team</h2><div class="people">${c.about.team.map(([n, r]) => `
+    body: `<section class="wrap team"><p class="eyebrow">Leadership</p><h2>Our Team</h2><div class="people">${c.about.team.map(([n, r]) => `
   <article class="person"><div class="mono" aria-hidden="true">${esc(initials(n))}</div><h3>${esc(n)}</h3><p>${esc(r)}</p></article>`).join("")}</div></section>`,
   }));
   // Portfolio
@@ -168,6 +172,8 @@ ${l.sections.map(([h, t]) => `<h2>${esc(h)}</h2><p>${esc(t)}</p>`).join("\n")}
   writeFileSync(join(out, "404.html"), page({ path: "/404", title: "Page not found", description: "Page not found",
     body: `<section class="wrap legaltext"><h1>Page not found</h1><p>The page you're looking for isn't here. <a href="/">Go to the home page</a> or <a href="${appPath}">log in</a>.</p></section>` }));
   copyFileSync(join(here, "site.css"), join(out, "site.css"));
+  cpSync(join(here, "brand"), join(out, "brand"), { recursive: true });
+  cpSync(join(here, "fonts"), join(out, "fonts"), { recursive: true });
   copyFileSync(join(here, "site.js"), join(out, "site.js"));
   writeFileSync(join(out, "robots.txt"), `User-agent: *\nDisallow: ${appPath}\nSitemap: ${siteUrl}/sitemap.xml\n`);
   const pages = ["/", "/about-us/", "/portfolio/", "/careers/", "/contact-us/", "/privacy-policy/", "/terms/", "/cookie-policy/"];

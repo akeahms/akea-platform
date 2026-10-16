@@ -1,5 +1,5 @@
 import React from "react";
-import { ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View, ViewStyle } from "react-native";
+import { ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View, ViewStyle, useColorScheme } from "react-native";
 import * as Haptics from "expo-haptics";
 import { brand, colors, radius, space } from "@/theme";
 
@@ -27,8 +27,10 @@ export function Card({ title, children, style, right }: { title?: string; childr
 }
 
 export function Button({ title, onPress, kind = "primary", disabled, busy, big }: { title: string; onPress: () => void; kind?: "primary" | "secondary" | "danger"; disabled?: boolean; busy?: boolean; big?: boolean }) {
-  const bg = kind === "primary" ? brand.accent : kind === "danger" ? brand.bad : colors.fill;
-  const fg = kind === "secondary" ? colors.label : "#FFFFFF";
+  const dark = useColorScheme() === "dark";
+  // primary: forest with cream text (cream with forest text in dark mode, so it stands out on a dark screen)
+  const bg = kind === "primary" ? (dark ? brand.onDark : brand.dark) : kind === "danger" ? brand.bad : colors.fill;
+  const fg = kind === "secondary" ? colors.label : kind === "primary" ? (dark ? brand.dark : brand.onDark) : "#FFFFFF";
   return (
     <Pressable accessibilityRole="button" disabled={disabled || busy}
       onPress={() => { Haptics.selectionAsync().catch(() => {}); onPress(); }}
