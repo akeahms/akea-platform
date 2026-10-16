@@ -59,6 +59,9 @@ Deno.serve(async (req) => {
   if (!who.ok) return json({ error: "Please sign in again." }, 401);
   const { question, history = [], today } = await req.json().catch(() => ({}));
   if (!question || String(question).length > 2000) return json({ error: "Ask a question (up to 2,000 characters)." }, 400);
+  // daily cap per person, so one account can't run up the AI bill
+  try { await rest(auth, "rpc/ai_quota_take", { method: "POST", body: "{}" }); }
+  catch (e) { const m = String((e as Error).message); return json({ error: (m.match(/"message":"([^"]+)"/)?.[1]) || "Ask AI isn't available right now." }, 429); }
 
   const system = `You answer questions about a hotel management company's own data for a signed-in user. Today is ${today || new Date().toISOString().slice(0, 10)} (US Central time).
 Use the tools to look data up; never guess numbers. The data you can read is already limited to what this user is allowed to see — if something comes back empty, say you don't see it rather than speculating.
@@ -75,7 +78,7 @@ Always look up hotel ids by name in the hotels table first when the user names a
     { name: "call_function", description: "Call a reporting function with JSON arguments.",
       input_schema: { type: "object", properties: { name: { type: "string", enum: Object.keys(RPCS) }, args: { type: "object" } }, required: ["name", "args"] } },
   ];
-  const messages: any[] = [...(history as any[]).slice(-6).map((m: any) => ({ role: m.role, content: String(m.content).slice(0, 4000) })), { role: "user", content: String(question) }];
+  const messages: any[] = [...(history as any[]).slice(-6).map((m: any) => ({ role: m.role === "assistant" ? "assistant" : "user", content: String(m.content).slice(0, 4000) })), { role: "user", content: String(question) }];
   const steps: { tool: string; detail: string; rows: number }[] = [];
   try {
     for (let i = 0; i < 8; i++) {

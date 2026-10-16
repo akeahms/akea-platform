@@ -455,6 +455,7 @@ export function Banking({ ctx }: { ctx: Ctx }) {
   const [matching, setMatching] = useState<any | null>(null);
   const [addAcct, setAddAcct] = useState<any | null>(null);
   const [feeds, setFeeds] = useState<string>("");
+  const [feedCfg, setFeedCfg] = useState<{ plaid: boolean; finicity: boolean } | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const tx = useAsync(() => acct ? db.get<any>(`bank_transactions?select=*&bank_account_id=eq.${acct.id}${view === "all" ? "" : `&status=eq.${view}`}&order=posted_date.desc&limit=400`) : Promise.resolve([]), [acct?.id, view]);
   const imports = useAsync(() => acct ? db.get<any>(`statement_imports?select=*&bank_account_id=eq.${acct.id}&order=created_at.desc&limit=5`) : Promise.resolve([]), [acct?.id, tx.data]);
@@ -496,8 +497,47 @@ export function Banking({ ctx }: { ctx: Ctx }) {
     catch (e: any) { setMsg({ kind: "bad", text: e.message }); }
   }
   async function checkFeeds() {
-    try { const r = await callFunction<any>("bank-feeds", { action: "status" }); setFeeds(r.message); }
-    catch { setFeeds("Bank feeds aren't switched on yet. Add Plaid or Finicity keys to the project (one-time setup), then connect each bank here."); }
+    try { const r = await callFunction<any>("bank-feeds", { action: "status" }); setFeeds(r.message); setFeedCfg(r.configured); }
+    catch { setFeeds("Bank feeds aren't switched on yet. Add Plaid or Finicity keys to the project (one-time setup), then connect each bank here."); setFeedCfg(null); }
+  }
+  async function connectPlaid() {
+    if (!acct) return;
+    setBusy(true);
+    try {
+      const { link_token } = await callFunction<any>("bank-feeds", { action: "plaid_link_token", bank_account_id: acct.id });
+      const Plaid = await loadPlaid();
+      const handler = Plaid.create({
+        token: link_token,
+        onSuccess: async (public_token: string, meta: any) => {
+          try {
+            await callFunction("bank-feeds", { action: "plaid_exchange", bank_account_id: acct.id, public_token, plaid_account_id: meta?.accounts?.[0]?.id, institution: meta?.institution?.name });
+            setFeeds(""); setMsg({ kind: "good", text: `${acct.name} is connected. Pulling transactions now…` });
+            await syncFeed();
+          } catch (e: any) { setMsg({ kind: "bad", text: e.message }); }
+        },
+        onExit: () => setBusy(false),
+      });
+      handler.open();
+    } catch (e: any) { setMsg({ kind: "bad", text: e.message }); setBusy(false); }
+  }
+  async function connectFinicity() {
+    if (!acct) return;
+    try {
+      const { url } = await callFunction<any>("bank-feeds", { action: "finicity_connect_url", bank_account_id: acct.id });
+      window.open(url, "_blank", "noopener");
+      setFeeds(""); setMsg({ kind: "info", text: `Finish signing in to the bank in the window that opened, then press "Sync now" on ${acct.name}.` });
+      accts.reload();
+    } catch (e: any) { setMsg({ kind: "bad", text: e.message }); }
+  }
+  async function syncFeed() {
+    if (!acct) return;
+    setBusy(true);
+    try {
+      const r = await callFunction<any>("bank-feeds", { action: "sync", bank_account_id: acct.id });
+      const matched = (r.matched_deposits || 0) + (r.matched_batches || 0) + (r.matched_amex || 0) + (r.matched_bills || 0);
+      setMsg({ kind: "good", text: `${r.added ?? 0} new transactions from the bank${r.duplicates ? ` (${r.duplicates} already here)` : ""}. ${matched} matched automatically.` });
+      tx.reload(); accts.reload();
+    } catch (e: any) { setMsg({ kind: "bad", text: e.message }); } finally { setBusy(false); }
   }
   const rows = tx.data || [];
   const totals = rows.reduce((a: any, t: any) => ({ in: a.in + (t.amount > 0 ? Number(t.amount) : 0), out: a.out + (t.amount < 0 ? -Number(t.amount) : 0) }), { in: 0, out: 0 });
@@ -509,7 +549,15 @@ export function Banking({ ctx }: { ctx: Ctx }) {
           <button className="btn" onClick={checkFeeds}>Connect bank feed</button>
           {ctx.can("finance", "approve") && <button className="btn" onClick={() => setAddAcct({ hotel_id: ctx.hotels.find((h) => h.status === "operating")?.id, name: "", institution: "", last4: "", kind: "operating" })}>Add bank account</button>}
         </>} />
-      {feeds && <Notice kind="info" onClose={() => setFeeds("")}>{feeds}</Notice>}
+      {feeds && <Notice kind="info" onClose={() => setFeeds("")}>
+        {feeds}
+        {acct && ctx.can("finance", "approve") && (feedCfg?.plaid || feedCfg?.finicity) && (
+          <div style={{ display: "flex", marginTop: 8, gap: 8, flexWrap: "wrap" }}>
+            {feedCfg?.plaid && <button className="btn primary sm" disabled={busy} onClick={connectPlaid}>Connect {acct.name} with Plaid</button>}
+            {feedCfg?.finicity && <button className="btn sm" disabled={busy} onClick={connectFinicity}>Connect {acct.name} with Finicity</button>}
+          </div>
+        )}
+      </Notice>}
       {accts.loading && !accts.data && <Loading />}
       {accts.error && <ErrorBox error={accts.error} retry={accts.reload} />}
       {accts.data && !accts.data.a.length && <Empty title="No bank accounts yet.">Add each hotel's operating account to start reconciling.</Empty>}
@@ -532,6 +580,7 @@ export function Banking({ ctx }: { ctx: Ctx }) {
                 <Seg label="Show" value={view} onChange={setView} options={[["unmatched", "To review"], ["matched", "Matched"], ["all", "All"]]} />
                 <span className="grow" />
                 <span className="small muted">In {usd(totals.in, 2)} · Out {usd(totals.out, 2)}</span>
+                {canEdit && acct.feed && acct.feed !== "manual" && <button className="btn" disabled={busy} onClick={syncFeed}>Sync now</button>}
                 {canEdit && <button className="btn" disabled={busy} onClick={autoMatch}>Auto-match now</button>}
               </div>
               {msg && <Notice kind={msg.kind === "info" ? "info" : msg.kind} onClose={() => setMsg(null)}>{msg.text}</Notice>}
@@ -910,4 +959,19 @@ function ChartOfAccounts({ ctx }: { ctx: Ctx }) {
       )}
     </>
   );
+}
+
+// Plaid Link is loaded from Plaid's own site only when someone connects a bank.
+let plaidLoading: Promise<any> | null = null;
+function loadPlaid(): Promise<any> {
+  const w = window as any;
+  if (w.Plaid) return Promise.resolve(w.Plaid);
+  plaidLoading ??= new Promise((resolve, reject) => {
+    const el = document.createElement("script");
+    el.src = "https://cdn.plaid.com/link/v2/stable/link-initialize.js";
+    el.onload = () => resolve(w.Plaid);
+    el.onerror = () => { plaidLoading = null; reject(new Error("Couldn't load Plaid. Check your connection and try again.")); };
+    document.head.appendChild(el);
+  });
+  return plaidLoading;
 }

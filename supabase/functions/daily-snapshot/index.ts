@@ -6,6 +6,8 @@ import { buildSnapshot, sendSnapshot } from "./snapshot.ts";
 const cors = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "authorization, apikey, content-type, x-client-info", "Access-Control-Allow-Methods": "POST, OPTIONS" };
 const json = (b: unknown, status = 200) => new Response(JSON.stringify(b), { status, headers: { ...cors, "Content-Type": "application/json" } });
 const env = (k: string) => Deno.env.get(k) || "";
+// The link in emails always points at the real portal (never a URL supplied in the request).
+const PORTAL = (env("PORTAL_URL") || "https://akea-portal.onrender.com").replace(/\/$/, "");
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
@@ -17,15 +19,18 @@ Deno.serve(async (req) => {
     if (body.action === "system_send") {
       const { data: cfg } = await admin.from("app_config").select("value").eq("key", "inbound_token").maybeSingle();
       if (!cfg?.value || req.headers.get("x-akea-token") !== cfg.value) return json({ error: "Not allowed" }, 401);
-      return json(await sendSnapshot(admin, body.hotel_id, body.date, String(body.portal || "https://akea-portal.onrender.com")));
+      return json(await sendSnapshot(admin, body.hotel_id, body.date, PORTAL));
     }
     const { data: u } = await user.auth.getUser();
     if (!u?.user) return json({ error: "Please sign in again." }, 401);
-    const { action, hotel_id, date, portal } = body;
+    const { action, hotel_id, date } = body;
     // the caller must be able to see this hotel (row-level security decides)
     const { data: h } = await user.from("hotels").select("id,tenant_id").eq("id", hotel_id).maybeSingle();
     if (!h) return json({ error: "Hotel not found." }, 404);
-    const portalUrl = String(portal || "https://akea-portal.onrender.com").replace(/\/$/, "");
+    const portalUrl = PORTAL;
+    // the snapshot shows revenue, so the caller also needs a numbers permission (dashboards, reports, finance or STR)
+    const { data: perf } = await user.rpc("sees_performance", { h: hotel_id });
+    if (!perf) return json({ error: "You don't have access to this hotel's figures." }, 403);
     if (action === "preview") {
       const s = await buildSnapshot(admin, hotel_id, date, portalUrl);
       return json({ subject: s.subject, html: s.html });

@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from "react";
-import { db } from "../lib/sb";
+import { db, currentSession } from "../lib/sb";
 import { Ctx, addDays, todayIn, fmtDate, wallToUtc, inTz, fmtClock, weekStart, DOW, hoursBetween, hrs, usd } from "../lib/app";
 import { PageHead, Card, Pill, Loading, ErrorBox, Empty, useAsync, Modal, Field, HotelSelect, Notice, SampleBadge, downloadFile, toCsv, Seg } from "../ui";
 
@@ -214,6 +214,7 @@ export function Schedule({ ctx }: { ctx: Ctx }) {
           {!grid.groups.length && <Empty title="No team members yet.">Add people on the Team page, then schedule them here.</Empty>}
         </section>
       )}
+      {data && hotelId && <ShiftSwaps ctx={ctx} hotelId={hotelId} tz={tz} emps={data.emps} onChange={q.reload} />}
       {edit && data && (
         <Modal title={edit.id ? "Edit shift" : "Add shift"} onClose={() => setEdit(null)} onSubmit={save}
           footer={<>{edit.id && <button type="button" className="btn" onClick={remove} style={{ marginRight: "auto", color: "var(--bad)" }}>Delete shift</button>}
@@ -247,6 +248,91 @@ export function Schedule({ ctx }: { ctx: Ctx }) {
   );
 }
 
+
+// ======================= Shift swaps =======================
+// Staff give a shift away or pick up an open one; a schedule manager approves and the shift moves.
+function ShiftSwaps({ ctx, hotelId, tz, emps, onChange }: { ctx: Ctx; hotelId: string; tz: string; emps: Emp[]; onChange: () => void }) {
+  const canDecide = ctx.can("workforce", "edit");
+  const [msg, setMsg] = useState<{ kind: "good" | "bad"; text: string } | null>(null);
+  const [offer, setOffer] = useState<{ shift: string; note: string } | null>(null);
+  const uid = currentSession()?.user.id;
+  const q = useAsync(async () => {
+    const now = new Date().toISOString();
+    const [reqs, me, open] = await Promise.all([
+      db.get<any>(`shift_requests?select=id,kind,status,note,from_employee,to_employee,created_at,shifts(id,starts_at,ends_at,position,department_id)&hotel_id=eq.${hotelId}&status=in.(open,claimed)&order=created_at.asc`),
+      db.get<any>(`employees?select=id&user_id=eq.${uid}&hotel_id=eq.${hotelId}&status=eq.active&limit=1`),
+      db.get<any>(`shifts?select=id,starts_at,ends_at,position&hotel_id=eq.${hotelId}&employee_id=is.null&published=eq.true&starts_at=gte.${now}&order=starts_at.asc&limit=30`),
+    ]);
+    const myId = me[0]?.id || null;
+    const mine = myId ? await db.get<any>(`shifts?select=id,starts_at,ends_at,position&employee_id=eq.${myId}&published=eq.true&starts_at=gte.${now}&order=starts_at.asc&limit=30`) : [];
+    return { reqs, myId, open, mine };
+  }, [hotelId]);
+  const who = (id: string | null) => { const e = emps.find((x) => x.id === id); return e ? `${e.first_name} ${e.last_name}` : "—"; };
+  const when = (s: any) => s ? `${fmtDate(inTz(s.starts_at, tz).date)} · ${fmtClock(s.starts_at, tz)}–${fmtClock(s.ends_at, tz)}${s.position ? " · " + s.position : ""}` : "";
+  async function run(fn: string, args: any, ok: string) {
+    setMsg(null);
+    try { await db.rpc(fn, args); setMsg({ kind: "good", text: ok }); q.reload(); onChange(); }
+    catch (e: any) { setMsg({ kind: "bad", text: e.message }); }
+  }
+  const d = q.data;
+  if (!d) return q.error ? <ErrorBox error={q.error} retry={q.reload} /> : null;
+  const busyShifts = new Set(d.reqs.map((r: any) => r.shifts?.id));
+  const offerable = d.mine.filter((s: any) => !busyShifts.has(s.id));
+  const pickable = d.open.filter((s: any) => !busyShifts.has(s.id));
+  if (!d.reqs.length && !d.myId && !canDecide) return null;
+  return (
+    <Card title="Shift swaps" actions={d.myId && offerable.length ? <button className="btn sm" onClick={() => setOffer({ shift: offerable[0].id, note: "" })}>Give away a shift</button> : undefined}>
+      {msg && <Notice kind={msg.kind} onClose={() => setMsg(null)}>{msg.text}</Notice>}
+      {!d.reqs.length && !(d.myId && pickable.length) && <p className="muted small" style={{ margin: 0 }}>No swap requests right now. Staff can give away a shift or pick up an open one here or in the mobile app; a schedule manager approves each change.</p>}
+      {!!d.reqs.length && (
+        <div className="tw"><table>
+          <thead><tr><th>Shift</th><th>From</th><th>To</th><th>Status</th><th></th></tr></thead>
+          <tbody>{d.reqs.map((r: any) => (
+            <tr key={r.id}>
+              <td className="small">{when(r.shifts)}{r.note && <div className="tag">“{r.note}”</div>}</td>
+              <td className="small">{r.kind === "pickup" ? <span className="muted">Open shift</span> : who(r.from_employee)}</td>
+              <td className="small">{r.to_employee ? who(r.to_employee) : <span className="muted">Up for grabs</span>}</td>
+              <td>{r.status === "claimed" ? <Pill kind="warn">Needs approval</Pill> : <Pill kind="mute">Waiting for a taker</Pill>}</td>
+              <td><div className="row-actions">
+                {canDecide && r.status === "claimed" && <>
+                  <button className="btn sm" onClick={() => run("shift_request_decide", { p_request: r.id, p_approve: false, p_note: null }, "Declined. The shift stays as it was.")}>Decline</button>
+                  <button className="btn sm pri" onClick={() => run("shift_request_decide", { p_request: r.id, p_approve: true, p_note: null }, `Approved. The shift now belongs to ${who(r.to_employee)}.`)}>Approve</button>
+                </>}
+                {d.myId && r.status === "open" && r.from_employee !== d.myId && <button className="btn sm pri" onClick={() => run("shift_claim", { p_request: r.id }, "Claimed. A manager will approve it.")}>Take this shift</button>}
+                {d.myId && (r.from_employee === d.myId || r.to_employee === d.myId) && <button className="btn sm" onClick={() => run("shift_request_cancel", { p_request: r.id }, "Withdrawn.")}>Withdraw</button>}
+              </div></td>
+            </tr>
+          ))}</tbody></table></div>
+      )}
+      {d.myId && !!pickable.length && (
+        <>
+          <div className="sp" />
+          <b className="small">Open shifts you can pick up</b>
+          {pickable.slice(0, 8).map((s: any) => (
+            <div key={s.id} className="li" style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <span className="small grow">{when(s)}</span>
+              <button className="btn sm" onClick={() => run("shift_pickup", { p_shift: s.id }, "Requested. A manager will approve it.")}>Pick up</button>
+            </div>
+          ))}
+        </>
+      )}
+      {offer && (
+        <Modal title="Give away a shift" onClose={() => setOffer(null)}
+          onSubmit={(e) => { e.preventDefault(); run("shift_offer", { p_shift: offer.shift, p_note: offer.note || null }, "Your shift is up for grabs. Coworkers can take it; a manager approves."); setOffer(null); }}
+          footer={<><button type="button" className="btn" onClick={() => setOffer(null)}>Cancel</button><button className="btn pri">Offer shift</button></>}>
+          <Field label="Shift" id="ofShift">
+            <select id="ofShift" value={offer.shift} onChange={(e) => setOffer({ ...offer, shift: e.target.value })}>
+              {offerable.map((s: any) => <option key={s.id} value={s.id}>{when(s)}</option>)}
+            </select>
+          </Field>
+          <Field label="Note for coworkers (optional)" id="ofNote"><input id="ofNote" maxLength={300} value={offer.note} onChange={(e) => setOffer({ ...offer, note: e.target.value })} /></Field>
+          <p className="small muted">You stay on the schedule until a manager approves the person who takes it.</p>
+        </Modal>
+      )}
+    </Card>
+  );
+}
+
 // ======================= Time clock =======================
 export function TimeClock({ ctx }: { ctx: Ctx }) {
   const { operating, hotel, hotelId, setHotelId } = useHotel(ctx);
@@ -273,6 +359,7 @@ export function TimeClock({ ctx }: { ctx: Ctx }) {
     setMsg(null);
     try {
       const r = await db.rpc<any>("clock", { p_action: action, p_hotel: opts.pin ? hotelId : null, p_pin: opts.pin || null, p_employee: opts.employee || null });
+      if (r?.error) throw new Error(r.error);
       setMsg({ kind: "good", text: action === "in" ? `${r.employee} clocked in at ${fmtClock(r.clock_in, tz)}.` : `${r.employee} clocked out. ${hrs(r.minutes / 60)} on this punch.` });
       setPin("");
       q.reload();
