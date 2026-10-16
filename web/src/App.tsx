@@ -114,7 +114,7 @@ const NAV: { group: string; items: NavItem[] }[] = [
     { id: "portfolio", label: "Portfolio Overview", module: "dashboards", icon: I.grid },
     { id: "hotel", label: "Hotel Overview", module: "dashboards", icon: I.bed },
     { id: "str", label: "STR Market", module: "str", icon: I.target },
-    { id: "ask", label: "Ask AI", module: "dashboards", icon: I.spark },
+    { id: "ask", label: "Ask AI", module: "ask_ai", icon: I.spark },
     { id: "investor-portal", label: "Investor Portal", module: "investor", icon: I.pie, show: (c) => isInvestorOnly(c) || c.can("investor", "admin") },
   ] },
   { group: "Reports", items: [

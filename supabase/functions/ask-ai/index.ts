@@ -53,15 +53,15 @@ async function rest(auth: string, path: string, init: RequestInit = {}) {
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
   const auth = req.headers.get("Authorization") || "";
-  const key = env("ANTHROPIC_API_KEY");
-  if (!key) return json({ configured: false, answer: "Ask AI isn't switched on yet. An administrator needs to add an Anthropic API key in Supabase → Edge Functions → Secrets (name: ANTHROPIC_API_KEY)." });
   const who = await fetch(`${SB_URL}/auth/v1/user`, { headers: { apikey: ANON, Authorization: auth } });
   if (!who.ok) return json({ error: "Please sign in again." }, 401);
   const { question, history = [], today } = await req.json().catch(() => ({}));
   if (!question || String(question).length > 2000) return json({ error: "Ask a question (up to 2,000 characters)." }, 400);
-  // daily cap per person, so one account can't run up the AI bill
+  // role permission ("Ask AI" in Users & Permissions) + daily cap per person, checked before any AI call
   try { await rest(auth, "rpc/ai_quota_take", { method: "POST", body: "{}" }); }
-  catch (e) { const m = String((e as Error).message); return json({ error: (m.match(/"message":"([^"]+)"/)?.[1]) || "Ask AI isn't available right now." }, 429); }
+  catch (e) { const m = String((e as Error).message); const msg = m.match(/"message":"([^"]+)"/)?.[1]; return json({ error: msg || "Ask AI isn't available right now." }, msg?.includes("turned on") ? 403 : 429); }
+  const key = env("ANTHROPIC_API_KEY");
+  if (!key) return json({ configured: false, answer: "Ask AI isn't switched on yet. An administrator needs to add an Anthropic API key in Supabase → Edge Functions → Secrets (name: ANTHROPIC_API_KEY)." });
 
   const system = `You answer questions about a hotel management company's own data for a signed-in user. Today is ${today || new Date().toISOString().slice(0, 10)} (US Central time).
 Use the tools to look data up; never guess numbers. The data you can read is already limited to what this user is allowed to see — if something comes back empty, say you don't see it rather than speculating.

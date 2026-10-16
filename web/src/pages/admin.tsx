@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { db, currentSession } from "../lib/sb";
-import { Ctx, Hotel } from "../lib/app";
-import { PageHead, Card, Loading, ErrorBox, Empty, useAsync } from "../ui";
+import { Ctx, Hotel, Level } from "../lib/app";
+import { PageHead, Card, Loading, ErrorBox, Empty, useAsync, Notice, Pill } from "../ui";
 
 // ======================= Hotels =======================
 export function Hotels({ ctx }: { ctx: Ctx }) {
@@ -152,6 +152,102 @@ export function Users({ ctx }: { ctx: Ctx }) {
               </Card>
             </div>
           )}
+        </div>
+      )}
+      <RolePermissions ctx={ctx} />
+    </>
+  );
+}
+
+// ======================= Role permissions =======================
+// What each role can do, module by module. Ask AI is off for every role except the Principal until you turn it on.
+const MODULES: { key: string; label: string; desc: string; levels: Level[] }[] = [
+  { key: "dashboards", label: "Dashboards", desc: "Portfolio and hotel performance", levels: ["none", "view", "admin"] },
+  { key: "reports", label: "Reports", desc: "Report inbox, nightly snapshot email", levels: ["none", "view", "edit", "admin"] },
+  { key: "str", label: "STR market data", desc: "Competitive set index", levels: ["none", "view"] },
+  { key: "ask_ai", label: "Ask AI", desc: "Plain-English questions about your data. Each question is billed by Anthropic (a few cents).", levels: ["none", "view"] },
+  { key: "finance", label: "Finance", desc: "Bills, banking, accounting, budgets. Approve = approve bills up to the role's limit", levels: ["none", "view", "edit", "approve", "admin"] },
+  { key: "purchasing", label: "Purchasing", desc: "Purchase orders", levels: ["none", "view", "edit", "approve"] },
+  { key: "workforce", label: "Workforce", desc: "Schedule, time clock, timesheets. Approve = see pay rates and approve hours", levels: ["none", "view", "edit", "approve", "admin"] },
+  { key: "operations", label: "Operations", desc: "Day-to-day hotel tasks", levels: ["none", "view", "edit", "admin"] },
+  { key: "compliance", label: "Compliance", desc: "Document vault, permits, insurance", levels: ["none", "view", "edit", "admin"] },
+  { key: "company", label: "Company information", desc: "Entities and state registrations", levels: ["none", "view", "edit", "admin"] },
+  { key: "investor", label: "Investors", desc: "Investor records, distributions, loan package", levels: ["none", "view", "edit", "admin"] },
+  { key: "construction", label: "Construction", desc: "Budgets, draws, milestones", levels: ["none", "view", "edit", "admin"] },
+  { key: "users", label: "Users & permissions", desc: "Invite people; admin can change these permissions", levels: ["none", "view", "edit", "admin"] },
+  { key: "settings", label: "Settings", desc: "Hotels and white-label branding", levels: ["none", "view", "admin"] },
+];
+const LEVEL_LABEL: Record<Level, string> = { none: "No access", view: "View", edit: "Edit", approve: "Approve", admin: "Admin" };
+
+function RolePermissions({ ctx }: { ctx: Ctx }) {
+  const canAdmin = ctx.can("users", "admin");
+  const q = useAsync(() => db.get<any>(`roles?select=id,key,name,role_permissions(module,level)&tenant_id=eq.${ctx.tenant.id}&order=name.asc`), [ctx.tenant.id]);
+  const [roleId, setRoleId] = useState("");
+  const [msg, setMsg] = useState<{ kind: "good" | "bad"; text: string } | null>(null);
+  const [saving, setSaving] = useState("");
+  if (!ctx.can("users", "view")) return null;
+  const roles = q.data || [];
+  const role = roles.find((r: any) => r.id === roleId) || roles.find((r: any) => r.key !== "principal") || roles[0];
+  const levelOf = (r: any, m: string): Level => (r?.role_permissions.find((p: any) => p.module === m)?.level as Level) || "none";
+  const locked = (r: any) => r?.key === "principal";
+  async function set(r: any, module: string, level: Level) {
+    setSaving(r.id + module); setMsg(null);
+    try {
+      await db.upsert("role_permissions", { role_id: r.id, module, level }, "role_id,module", "role_id");
+      setMsg({ kind: "good", text: `${r.name}: ${MODULES.find((m) => m.key === module)?.label} set to ${LEVEL_LABEL[level]}. People with this role see the change next time they sign in or refresh.` });
+      q.reload();
+    } catch (e: any) { setMsg({ kind: "bad", text: e.message }); } finally { setSaving(""); }
+  }
+  return (
+    <>
+      <div className="sp" />
+      {q.error && <ErrorBox error={q.error} retry={q.reload} />}
+      {q.data && (
+        <div className="grid g-2-1">
+          <Card title="Role permissions" note={canAdmin ? "Changes apply to everyone with the role." : "Only admins can change these."}>
+            {msg && <Notice kind={msg.kind} onClose={() => setMsg(null)}>{msg.text}</Notice>}
+            <div className="field"><label htmlFor="rpRole">Role</label>
+              <select id="rpRole" value={role?.id || ""} onChange={(e) => setRoleId(e.target.value)}>
+                {roles.map((r: any) => <option key={r.id} value={r.id}>{r.name}</option>)}
+              </select></div>
+            {locked(role) && <p className="small muted">The Principal / CEO role always has full access, so it can't be locked out.</p>}
+            <div className="tw"><table>
+              <thead><tr><th>Area</th><th>Access</th></tr></thead>
+              <tbody>{MODULES.map((m) => {
+                const lv = levelOf(role, m.key);
+                return (
+                  <tr key={m.key}>
+                    <td><b>{m.label}</b><div className="tag">{m.desc}</div></td>
+                    <td style={{ width: 170 }}>
+                      {m.key === "ask_ai" ? (
+                        <label className="check-row" htmlFor={"rp-" + m.key} style={{ margin: 0 }}>
+                          <input id={"rp-" + m.key} type="checkbox" checked={lv !== "none"} disabled={!canAdmin || locked(role) || !!saving}
+                            onChange={(e) => set(role, m.key, e.target.checked ? "view" : "none")} /> {lv !== "none" ? "On" : "Off"}
+                        </label>
+                      ) : (
+                        <select aria-label={`${m.label} access`} value={m.levels.includes(lv) ? lv : lv} disabled={!canAdmin || locked(role) || !!saving}
+                          onChange={(e) => set(role, m.key, e.target.value as Level)}>
+                          {[...new Set([...m.levels, lv])].map((l) => <option key={l} value={l}>{LEVEL_LABEL[l as Level]}</option>)}
+                        </select>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}</tbody>
+            </table></div>
+          </Card>
+          <Card title="Who can use Ask AI">
+            <p className="small muted" style={{ marginTop: 0 }}>Off for everyone except the Principal until you switch it on here. Each question costs a few cents on your Anthropic account; each person can ask up to 60 a day.</p>
+            <div className="list">{roles.map((r: any) => {
+              const on = levelOf(r, "ask_ai") !== "none";
+              return (
+                <label key={r.id} className="li check-row" htmlFor={"ai-" + r.id} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <input id={"ai-" + r.id} type="checkbox" checked={on} disabled={!canAdmin || locked(r) || !!saving} onChange={(e) => set(r, "ask_ai", e.target.checked ? "view" : "none")} />
+                  <span className="grow">{r.name}</span>{on ? <Pill kind="good">On</Pill> : <Pill kind="mute">Off</Pill>}
+                </label>
+              );
+            })}</div>
+          </Card>
         </div>
       )}
     </>
