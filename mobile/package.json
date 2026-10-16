@@ -9,25 +9,26 @@
     "android": "expo start --android",
     "fix": "expo install --fix",
     "typecheck": "tsc --noEmit",
-    "setup": "npx expo install expo-constants expo-haptics expo-linking expo-router expo-secure-store expo-splash-screen expo-status-bar expo-symbols react react-native react-native-safe-area-context react-native-screens && npx expo install --fix"
+    "setup": "npm install && npx expo install --check"
   },
   "dependencies": {
     "expo": "~57.0.0",
-    "expo-constants": "*",
-    "expo-haptics": "*",
-    "expo-linking": "*",
-    "expo-router": "*",
-    "expo-secure-store": "*",
-    "expo-splash-screen": "*",
-    "expo-status-bar": "*",
-    "expo-symbols": "*",
-    "react": "19.2.0",
+    "expo-constants": "~57.0.22",
+    "expo-haptics": "~57.0.3",
+    "expo-linking": "~57.0.13",
+    "expo-router": "~57.0.28",
+    "expo-secure-store": "~57.0.4",
+    "expo-splash-screen": "~57.0.10",
+    "expo-status-bar": "~57.0.1",
+    "expo-symbols": "~57.0.3",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
     "react-native": "0.86.3",
-    "react-native-safe-area-context": "*",
-    "react-native-screens": "*"
+    "react-native-safe-area-context": "~5.7.0",
+    "react-native-screens": "~4.26.0"
   },
   "devDependencies": {
     "@types/react": "~19.2.0",
-    "typescript": "~5.9.0"
+    "typescript": "~6.0.3"
   }
 }
