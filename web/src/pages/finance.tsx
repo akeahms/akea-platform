@@ -4,6 +4,7 @@ import { Ctx, usd, fmtDate, todayIn, addDays, periodRange, Period, yesterday, pc
 import { PageHead, Card, Pill, Loading, ErrorBox, Empty, useAsync, Modal, Field, HotelSelect, Notice, SampleBadge, Seg, Tabs, downloadFile, toCsv, Kpi } from "../ui";
 import { readBankStatement, documentText, BankParse } from "../lib/parse";
 import { extractInvoice } from "../lib/extract";
+import { QuickBooks } from "./quickbooks";
 
 type Gl = { id: string; number: string; name: string; type: string; section: string | null; active: boolean };
 type Vendor = { id: string; name: string; dba: string | null; category: string | null; contact_name: string | null; email: string | null; phone: string | null; address: string | null;
@@ -665,16 +666,17 @@ function ResolveModal({ t, expected, gl, onClose, act }: { t: any; expected: any
 // ======================= Accounting: P&L, budget, journal, chart of accounts =======================
 type PnlRow = { section: string; account: string; number: string; kind: string; actual: number; budget: number | null; last_year: number | null };
 export function Accounting({ ctx }: { ctx: Ctx }) {
-  const [tab, setTab] = useState<"pnl" | "budget" | "journal" | "coa">("pnl");
+  const [tab, setTab] = useState<"pnl" | "budget" | "journal" | "coa" | "qbo">(() => (window.location.hash.includes("qbo=") ? "qbo" : "pnl"));
   return (
     <>
       <PageHead eyebrow="Finance" title="Accounting" desc="Profit & loss against budget and last year, budgets by month, journal entries and the chart of accounts."
         actions={<button className="btn" onClick={() => window.print()}>Print</button>} />
-      <Tabs value={tab} onChange={setTab} tabs={[["pnl", "Profit & Loss"], ["budget", "Budget"], ["journal", "Journal"], ["coa", "Chart of accounts"]]} />
+      <Tabs value={tab} onChange={setTab} tabs={[["pnl", "Profit & Loss"], ["budget", "Budget"], ["journal", "Journal"], ["coa", "Chart of accounts"], ["qbo", "QuickBooks"]]} />
       {tab === "pnl" && <Pnl ctx={ctx} />}
       {tab === "budget" && <BudgetEditor ctx={ctx} />}
       {tab === "journal" && <Journal ctx={ctx} />}
       {tab === "coa" && <ChartOfAccounts ctx={ctx} />}
+      {tab === "qbo" && <QuickBooks ctx={ctx} />}
     </>
   );
 }

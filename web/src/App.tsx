@@ -14,7 +14,7 @@ import { Loading, ErrorBox } from "./ui";
 
 // ---------------- routing: #route/param ----------------
 function useRoute() {
-  const read = () => (window.location.hash.startsWith("#access_token") ? "" : window.location.hash.slice(1)) || "portfolio";
+  const read = () => (window.location.hash.startsWith("#access_token") ? "" : window.location.hash.slice(1).split("?")[0]) || "portfolio";
   const [route, setRoute] = useState(read);
   useEffect(() => {
     const on = () => setRoute(read());
