@@ -43,6 +43,11 @@ customers until a person approves the pull request (and, for legal wording, a Te
 - Securities: SEC Regulation D / general solicitation, state blue-sky rules for investor communications; investment-adviser definitions.
 - PCI DSS (only if card data is ever stored; it isn't).
 
+**Antitrust (market data, pricing)**
+- Sherman Act Section 1 cases on algorithmic pricing in hotels (e.g. Gibson v. Cendyn, 9th Cir. 2025; Atlantic City casino-hotel cases) and DOJ/FTC guidance on information sharing.
+- California AB 325 and SB 763 (Cartwright Act amendments on common pricing algorithms, effective 2026) and similar bills in other states and cities.
+- The Services must not recommend prices or pool customers' non-public pricing data; AUP and Disclaimers say so.
+
 **Accessibility**
 - ADA Title III case law, DOJ ADA Title II web rule (WCAG 2.1 AA, April 2026/2027 deadlines for public entities), WCAG updates.
 
