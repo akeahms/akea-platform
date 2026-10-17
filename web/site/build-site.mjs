@@ -3,6 +3,7 @@
 import { mkdirSync, readFileSync, writeFileSync, copyFileSync, cpSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { buildPreview } from "./build-preview.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const esc = (s = "") => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -182,6 +183,8 @@ ${l.sections.map(([h, t]) => `<h2>${esc(h)}</h2>${prose(t)}`).join("\n")}
     path: "/legal/", title: "Legal", description: `${legal.entity} terms, policies and disclaimers.`,
     body: `<article class="wrap legaltext"><h1>Legal</h1><p class="muted">${esc(legal.updated)} · Version ${esc(legal.version)}</p><p>The terms, policies and disclaimers that apply to our website, the Akea AI Suite and our apps.</p><ul class="legal-index">${legalLinks}</ul></article>`,
   }));
+  // the redesigned home page, for review (not linked, not indexed)
+  buildPreview({ c, legal, out, here, img, csp, esc, appPath });
   // 404
   writeFileSync(join(out, "404.html"), page({ path: "/404", title: "Page not found", description: "Page not found",
     body: `<section class="wrap legaltext"><h1>Page not found</h1><p>The page you're looking for isn't here. <a href="/">Go to the home page</a> or <a href="${appPath}">log in</a>.</p></section>` }));
@@ -189,7 +192,7 @@ ${l.sections.map(([h, t]) => `<h2>${esc(h)}</h2>${prose(t)}`).join("\n")}
   cpSync(join(here, "brand"), join(out, "brand"), { recursive: true });
   cpSync(join(here, "fonts"), join(out, "fonts"), { recursive: true });
   copyFileSync(join(here, "site.js"), join(out, "site.js"));
-  writeFileSync(join(out, "robots.txt"), `User-agent: *\nDisallow: ${appPath}\nSitemap: ${siteUrl}/sitemap.xml\n`);
+  writeFileSync(join(out, "robots.txt"), `User-agent: *\nDisallow: ${appPath}\nDisallow: /preview/\nSitemap: ${siteUrl}/sitemap.xml\n`);
   const pages = ["/", "/about-us/", "/portfolio/", "/careers/", "/contact-us/", "/legal/", ...legal.order.map((x) => `/${x}/`)];
   writeFileSync(join(out, "sitemap.xml"), `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${pages.map((p) => `  <url><loc>${siteUrl}${p}</loc></url>`).join("\n")}\n</urlset>\n`);
 }
