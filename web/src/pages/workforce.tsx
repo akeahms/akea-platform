@@ -463,7 +463,7 @@ export function TimeClock({ ctx }: { ctx: Ctx }) {
 
 // ======================= Timesheets & payroll =======================
 type PayRow = { employee_id: string; employee: string; hotel_id: string; department: string | null; dept_color: string | null; pay_type: string | null; rate: number | null;
-  days: Record<string, number> | null; total_hours: number; regular_hours: number; overtime_hours: number; est_gross: number | null; open_punches: number; unapproved: number };
+  days: Record<string, number> | null; total_hours: number; regular_hours: number; overtime_hours: number; double_time_hours: number; est_gross: number | null; open_punches: number; unapproved: number; state: string | null };
 
 export function Timesheets({ ctx }: { ctx: Ctx }) {
   const operating = ctx.hotels.filter((h) => h.status === "operating");
@@ -475,11 +475,11 @@ export function Timesheets({ ctx }: { ctx: Ctx }) {
   const canApprove = ctx.can("workforce", "approve");
   const [msg, setMsg] = useState<{ kind: "good" | "bad"; text: string } | null>(null);
   const [detail, setDetail] = useState<PayRow | null>(null);
-  const q = useAsync(() => db.rpc<PayRow[]>("payroll_hours", { p_from: range[0], p_to: range[1], p_hotels: hotelId ? [hotelId] : null }), [hotelId, range[0], range[1]]);
+  const q = useAsync(() => db.rpc<PayRow[]>("payroll_hours_v2", { p_from: range[0], p_to: range[1], p_hotels: hotelId ? [hotelId] : null }), [hotelId, range[0], range[1]]);
   const days: string[] = [];
   for (let d = range[0]; d <= range[1]; d = addDays(d, 1)) days.push(d);
   const rows = q.data || [];
-  const tot = rows.reduce((a, r) => ({ h: a.h + Number(r.total_hours), r: a.r + Number(r.regular_hours), o: a.o + Number(r.overtime_hours), g: a.g + Number(r.est_gross || 0), u: a.u + r.unapproved, open: a.open + r.open_punches }), { h: 0, r: 0, o: 0, g: 0, u: 0, open: 0 });
+  const tot = rows.reduce((a, r) => ({ h: a.h + Number(r.total_hours), r: a.r + Number(r.regular_hours), o: a.o + Number(r.overtime_hours), dt: a.dt + Number(r.double_time_hours || 0), g: a.g + Number(r.est_gross || 0), u: a.u + r.unapproved, open: a.open + r.open_punches }), { h: 0, r: 0, o: 0, dt: 0, g: 0, u: 0, open: 0 });
   const hName = (id: string) => ctx.hotels.find((h) => h.id === id)?.name || "";
 
   async function approveAll() {
@@ -497,14 +497,14 @@ export function Timesheets({ ctx }: { ctx: Ctx }) {
     } catch (e: any) { setMsg({ kind: "bad", text: e.message }); }
   }
   function exportCsv() {
-    const head = ["Employee", "Hotel", "Department", "Pay type", "Rate", ...days, "Regular hours", "Overtime hours", "Total hours", "Estimated gross"];
-    const body = rows.map((r) => [r.employee, hName(r.hotel_id), r.department, r.pay_type, r.rate, ...days.map((d) => r.days?.[d] ?? 0), r.regular_hours, r.overtime_hours, r.total_hours, r.est_gross]);
+    const head = ["Employee", "Hotel", "Department", "Pay type", "Rate", ...days, "Regular hours", "Overtime hours (1.5x)", "Double time hours (2x)", "Total hours", "Estimated gross", "Overtime rules (state)"];
+    const body = rows.map((r) => [r.employee, hName(r.hotel_id), r.department, r.pay_type, r.rate, ...days.map((d) => r.days?.[d] ?? 0), r.regular_hours, r.overtime_hours, r.double_time_hours, r.total_hours, r.est_gross, r.state || "Federal"]);
     downloadFile(`payroll-hours_${range[0]}_to_${range[1]}.csv`, toCsv([head, ...body]));
   }
 
   return (
     <>
-      <PageHead eyebrow="Workforce" title="Timesheets & Payroll Hours" desc="Daily hours from the time clock, overtime past 40 hours a week, approval and payroll export."
+      <PageHead eyebrow="Workforce" title="Timesheets & Payroll Hours" desc="Daily hours from the time clock, overtime by federal and state rules, approval and payroll export."
         actions={<>
           <button className="btn" onClick={() => window.print()}>Print</button>
           <button className="btn" onClick={exportCsv} disabled={!rows.length}>Export for payroll</button>
@@ -520,6 +520,7 @@ export function Timesheets({ ctx }: { ctx: Ctx }) {
         <div className="kpi"><span className="l">Total hours</span><span className="v">{tot.h.toFixed(1)}</span></div>
         <div className="kpi"><span className="l">Regular</span><span className="v">{tot.r.toFixed(1)}</span></div>
         <div className="kpi"><span className="l">Overtime</span><span className="v" style={{ color: tot.o ? "var(--warn)" : undefined }}>{tot.o.toFixed(1)}</span></div>
+        {tot.dt > 0 && <div className="kpi"><span className="l">Double time</span><span className="v" style={{ color: "var(--warn)" }}>{tot.dt.toFixed(1)}</span></div>}
         {canApprove && <div className="kpi"><span className="l">Estimated gross</span><span className="v">{usd(tot.g)}</span></div>}
         <div className="kpi"><span className="l">Waiting for approval</span><span className="v">{tot.u}</span></div>
         <div className="kpi"><span className="l">Still clocked in</span><span className="v">{tot.open}</span></div>
@@ -531,7 +532,7 @@ export function Timesheets({ ctx }: { ctx: Ctx }) {
           {rows.length ? (
             <div className="tw"><table>
               <thead><tr><th>Employee</th>{!hotelId && <th>Hotel</th>}{days.length <= 7 && days.map((d, i) => <th key={d} className="n">{DOW[i % 7]} {Number(d.slice(8))}</th>)}
-                <th className="n">Regular</th><th className="n">OT</th><th className="n">Total</th>{canApprove && <th className="n">Est. gross</th>}<th>Status</th></tr></thead>
+                <th className="n">Regular</th><th className="n">OT</th>{tot.dt > 0 && <th className="n">2x</th>}<th className="n">Total</th>{canApprove && <th className="n">Est. gross</th>}<th>Status</th></tr></thead>
               <tbody>{rows.map((r) => (
                 <tr key={r.employee_id} onClick={() => setDetail(r)} style={{ cursor: "pointer" }}>
                   <td className="nowrap"><i className="dot" style={{ background: r.dept_color || "var(--line)" }} /><b>{r.employee}</b><div className="tag">{r.department}</div></td>
@@ -539,6 +540,7 @@ export function Timesheets({ ctx }: { ctx: Ctx }) {
                   {days.length <= 7 && days.map((d) => <td key={d} className="n">{r.days?.[d] ? Number(r.days[d]).toFixed(2) : <span className="muted">—</span>}</td>)}
                   <td className="n">{Number(r.regular_hours).toFixed(2)}</td>
                   <td className="n" style={{ color: Number(r.overtime_hours) ? "var(--warn)" : undefined, fontWeight: Number(r.overtime_hours) ? 700 : 400 }}>{Number(r.overtime_hours).toFixed(2)}</td>
+                  {tot.dt > 0 && <td className="n">{Number(r.double_time_hours).toFixed(2)}</td>}
                   <td className="n"><b>{Number(r.total_hours).toFixed(2)}</b></td>
                   {canApprove && <td className="n">{r.est_gross != null ? usd(Number(r.est_gross), 2) : "—"}</td>}
                   <td>{r.open_punches ? <Pill kind="info">Clocked in</Pill> : r.unapproved ? <Pill kind="warn">{r.unapproved} to approve</Pill> : <Pill kind="good">Approved</Pill>}</td>
@@ -548,6 +550,7 @@ export function Timesheets({ ctx }: { ctx: Ctx }) {
           ) : <Empty title="No hours recorded for this period." />}
         </Card>
       )}
+      <p className="small muted disclaimer">Overtime follows the federal 40-hour workweek (Monday–Sunday) plus the daily overtime rules of California, Alaska and Colorado, by each hotel's state. Pay figures are estimates for checking hours, not payroll: they leave out meal and rest-break premiums, the regular rate (bonuses, shift differentials, tips), local ordinances and other state rules. Your payroll provider and employment counsel decide the final pay and your company is responsible for wage-and-hour compliance.</p>
       {detail && <PunchDetail ctx={ctx} row={detail} range={range} onClose={() => { setDetail(null); q.reload(); }} />}
     </>
   );
@@ -558,6 +561,7 @@ function PunchDetail({ ctx, row, range, onClose }: { ctx: Ctx; row: PayRow; rang
   const tz = hotel?.timezone || "America/Chicago";
   const canEdit = ctx.can("workforce", "edit");
   const q = useAsync(() => db.get<any>(`time_punches?select=*&employee_id=eq.${row.employee_id}&clock_in=gte.${wallToUtc(range[0], "00:00", tz)}&clock_in=lt.${wallToUtc(addDays(range[1], 1), "00:00", tz)}&order=clock_in.asc`), [row.employee_id]);
+  const hist = useAsync(() => db.get<any>(`time_punch_changes?select=id,punch_id,action,before,after,reason,changed_at&employee_id=eq.${row.employee_id}&changed_at=gte.${wallToUtc(range[0], "00:00", tz)}&order=changed_at.asc`), [row.employee_id]);
   const [edit, setEdit] = useState<any | null>(null);
   const [err, setErr] = useState("");
   async function save() {
@@ -570,6 +574,7 @@ function PunchDetail({ ctx, row, range, onClose }: { ctx: Ctx; row: PayRow; rang
       await db.update("time_punches", `id=eq.${edit.id}`, { clock_in: inIso, clock_out: outIso, break_minutes: Number(edit.break_minutes || 0), edited_reason: edit.reason, approved_at: null, approved_by: null }, "id");
       setEdit(null);
       q.reload();
+      hist.reload();
     } catch (e: any) { setErr(e.message); }
   }
   return (
@@ -591,6 +596,22 @@ function PunchDetail({ ctx, row, range, onClose }: { ctx: Ctx; row: PayRow; rang
             </tr>
           ))}</tbody>
         </table></div>
+      )}
+      {hist.data && hist.data.length > 0 && (
+        <>
+          <h3 style={{ marginTop: 18, fontSize: 16 }}>Change history</h3>
+          <div className="tw"><table>
+            <thead><tr><th>When</th><th>Change</th><th>Reason</th></tr></thead>
+            <tbody>{hist.data.map((c: any) => (
+              <tr key={c.id}>
+                <td className="nowrap small">{fmtDate(inTz(c.changed_at, tz).date)} {fmtClock(c.changed_at, tz)}</td>
+                <td className="small">{c.action === "delete" ? "Removed" : `${fmtClock(c.before.clock_in, tz)}–${c.before.clock_out ? fmtClock(c.before.clock_out, tz) : "open"} (${c.before.break_minutes}m) → ${fmtClock(c.after.clock_in, tz)}–${c.after.clock_out ? fmtClock(c.after.clock_out, tz) : "open"} (${c.after.break_minutes}m)`}</td>
+                <td className="small">{c.reason || "—"}</td>
+              </tr>
+            ))}</tbody>
+          </table></div>
+          <p className="small muted">Every change to a punch is kept with the original times. Punches can be corrected but not deleted.</p>
+        </>
       )}
       {edit && (
         <div className="card" style={{ padding: 16, marginTop: 14 }}>

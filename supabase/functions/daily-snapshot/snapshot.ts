@@ -133,7 +133,8 @@ export async function buildSnapshot(db: any, hotelId: string, date: string, port
   <tr><td align="center" style="padding:26px 24px 8px"><a href="${esc(portalUrl)}/#hotel/${hotel.id}" style="display:inline-block;background:${dark};color:#EDE6D8;text-decoration:none;font-weight:600;font-size:14px;padding:13px 26px;border-radius:999px">Open the full dashboard</a></td></tr>
   <tr><td style="padding:10px 24px 24px;font-size:11.5px;color:#6E685D;text-align:center;line-height:1.6">
     Numbers come from the night audit report emailed by the hotel's PMS${(stats || []).length ? "; month and year figures are as printed on that report" : ""}.${!dayLy ? " Same-day last-year comparisons start once last year's audits are loaded." : ""}<br>
-    Sent by ${esc(brand)} · You receive this because you're on this hotel's nightly report list.</td></tr>
+    Sent by ${esc(brand)} · You receive this because you're on this hotel's nightly report list. To stop receiving it, ask your administrator to remove you from the list.<br>
+    Confidential: for the hotel's owners and managers only. Figures are unaudited and may change; this email is not accounting, tax or investment advice.${/^https:\/\//i.test(portalUrl) ? ` <a href="${esc(portalUrl.replace(/\/app\/?$/, ""))}/disclaimers/" style="color:#6E685D">Disclaimers</a>` : ""}</td></tr>
 </table></td></tr></table></body></html>`;
   return { subject, html, tenant_id: hotel.tenant_id, from: tenant?.email_sender || null, brand };
 }

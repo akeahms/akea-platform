@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { auth, onAuth, currentSession, Session, mfa } from "./lib/sb";
+import { auth, onAuth, currentSession, Session, mfa, db } from "./lib/sb";
 import { SocialButtons, MfaGate, AccountSecurity, PasswordRules, passwordOk } from "./security";
+import { LegalGate, LegalLinks, LegalStatus, LegalNote } from "./legal";
 import { loadContext, makeCan, Ctx, Membership, Hotel, appName, productName, loadBranding, Branding, applyTheme, logoFor, lightLogoFor } from "./lib/app";
 import { AlertsPanel, useAlerts } from "./pages/compliance";
 import { Loading, ErrorBox } from "./ui";
@@ -120,6 +121,7 @@ function AuthScreen({ recovery, onRecovered }: { recovery: boolean; onRecovered:
           {mode === "in" && <button type="button" className="link" onClick={() => setMode("link")}>Sign in without a password</button>}
         </div>
         <p className="fine">New team members: use the email address your administrator invited.</p>
+        <p className="fine">By signing in or creating an account you agree to our <a href="/terms/" target="_blank" rel="noopener">Terms of Service</a>, including individual arbitration and a class-action waiver, and our <a href="/privacy-policy/" target="_blank" rel="noopener">Privacy Policy</a>.</p>
       </form>
     </div>
   );
@@ -276,6 +278,7 @@ function Shell({ ctx, session }: { ctx: Ctx; session: Session }) {
         <div className="rail-foot">
           <a className="me" href="#account" title="Sign-in & Security"><b>{session.user.email}</b><span>{ctx.membership.roles.name} · Security</span></a>
           <button className="btn sm" onClick={() => auth.signOut()}>Sign out</button>
+          <LegalLinks />
         </div>
       </aside>
       {menu && <div className="scrim" onClick={() => setMenu(false)} />}
@@ -291,11 +294,32 @@ function Shell({ ctx, session }: { ctx: Ctx; session: Session }) {
           <span className="top-role">{ctx.membership.roles.name}</span>
         </header>
         {bell && <AlertsPanel ctx={ctx} onClose={() => { setBell(false); alerts.reload(); }} />}
-        <main className="content"><React.Suspense fallback={<Loading />}>{view}</React.Suspense></main>
+        <main className="content"><React.Suspense fallback={<Loading />}>{view}</React.Suspense>{PAGE_NOTES[page] && <LegalNote>{PAGE_NOTES[page]}</LegalNote>}</main>
       </div>
     </div>
   );
 }
+
+// Short notices on pages where the law or a licence makes a disclaimer important (full text: /disclaimers/).
+const PAGE_NOTES: Record<string, string> = {
+  "fin-reports": "Reports are built from the entries in this software. They are not audited, reviewed or compiled by a CPA and are not tax or accounting advice; have your accountant review them before using them for tax returns, lenders or investors.",
+  accounting: "Books and budgets are kept from your own entries and settings. They are not audited and are not accounting or tax advice.",
+  "books-review": "This checklist helps you close the month; it does not replace review by your accountant.",
+  banking: "This software records payments but never moves money. Bank data can be late or incomplete, so reconcile it to your bank statement.",
+  bills: "Paying a bill here records the payment; the money moves only through your bank.",
+  checks: "Before signing, check every payee, amount and date. Keep blank check stock locked up and use your bank's fraud protection, such as Positive Pay. You're responsible for checks you print.",
+  ask: "AI answers can be wrong or incomplete, even when they sound sure. Check important numbers against the source before acting on them.",
+  str: "STR market data is licensed to your company. It's confidential, may be revised, and must not be shared outside your licence.",
+  "investor-portal": "For information only. Figures are unaudited and may be estimates. This is not an offer to sell securities or investment advice, and past results don't predict future results.",
+  investors: "Investor figures are unaudited. You're responsible for complying with securities laws in anything you send to investors or lenders.",
+  loan: "Loan packages are prepared from your entries and are unaudited. You're responsible for the accuracy of anything you give a lender.",
+  pfs: "Your personal financial statement is prepared only from what you enter. It's not reviewed by an accountant.",
+  refunds: "Approving a refund here doesn't send money. Issue the refund in your payment or property-management system.",
+  permits: "Reminders depend on the dates entered and may not always arrive. You remain responsible for renewing permits and licences on time.",
+  insurance: "Reminders depend on the dates entered. You remain responsible for keeping coverage in force. This isn't insurance advice.",
+  timeclock: "Punches are recorded to the minute, never rounded, and breaks aren't deducted automatically. Corrections need a reason and are logged.",
+  schedule: "Check local scheduling laws (such as advance-notice and predictive-scheduling rules) and limits on hours for minors before publishing.",
+};
 
 // ---------------- root ----------------
 export default function App() {
@@ -306,6 +330,7 @@ export default function App() {
   const [err, setErr] = useState("");
   const [tick, setTick] = useState(0);
   const [mfaState, setMfaState] = useState<"checking" | "needed" | "ok">("checking");
+  const [legal, setLegal] = useState<LegalStatus | null>(null);
 
   useEffect(() => {
     auth.consumeRedirect().then((kind) => {
@@ -339,6 +364,13 @@ export default function App() {
     return { membership: data.membership, tenant: data.membership.tenants, hotels: data.hotels, can: makeCan(data.membership), reload: () => setTick((x) => x + 1) };
   }, [data]);
 
+  // Terms acceptance (after two-step sign-in, so a Principal's role is confirmed)
+  useEffect(() => {
+    setLegal(null);
+    if (!ctx || mfaState !== "ok") return;
+    db.rpc<LegalStatus>("legal_status", { p_tenant: ctx.tenant.id }).then(setLegal, (e) => setErr(e.message));
+  }, [ctx?.tenant.id, session?.user.id, mfaState]);
+
   if (!ready) return <Loading />;
   if (!session || recovery) return <AuthScreen recovery={recovery} onRecovered={() => setRecovery(false)} />;
   if (err) return <div className="center"><ErrorBox error={err} retry={() => setTick((x) => x + 1)} /></div>;
@@ -357,5 +389,7 @@ export default function App() {
         </div>
       </div>
     );
+  if (!legal) return <Loading />;
+  if (!legal.user_accepted || (legal.is_principal && !legal.company_accepted)) return <LegalGate status={legal} tenant={ctx.tenant} onDone={setLegal} />;
   return <Shell ctx={ctx} session={session} />;
 }

@@ -9,6 +9,7 @@ const esc = (s = "") => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<
 
 export function buildSite(out, { supabaseUrl, siteUrl = "https://akeahms.com", tenantSlug = "akea", appPath = "/app/" }) {
   const c = JSON.parse(readFileSync(join(here, "content.json"), "utf8"));
+  const legal = JSON.parse(readFileSync(join(here, "legal.json"), "utf8"));
   // images were copied from Wix into our own storage (functions/site-assets); same file names without "~mv2"
   const img = (u) => {
     if (!u) return "";
@@ -88,7 +89,7 @@ ${body}
     <div><h6>Links</h6>${nav.map(([href, label]) => `<a href="${href}">${label}</a>`).join("")}<a href="${appPath}">Login</a></div>
     <div>${footerForm ? contactForm("footer-form", "Get in touch") : ""}</div>
   </div>
-  <div class="wrap legal"><span>${esc(c.copyright)}</span><span><a href="/privacy-policy/">Privacy Policy</a> · <a href="/terms/">T&amp;C</a> · <a href="/cookie-policy/">Cookie Policy</a></span></div>
+  <div class="wrap legal"><span>${esc(c.copyright)}</span><span><a href="/terms/">Terms</a> · <a href="/privacy-policy/">Privacy</a> · <a href="/disclaimers/">Disclaimers</a> · <a href="/cookie-policy/">Cookies</a> · <a href="/accessibility/">Accessibility</a> · <a href="/legal/">All legal</a></span></div>
 </footer>
 </body>
 </html>
@@ -159,15 +160,28 @@ ${body}
   <aside class="reach"><h2>Let's Connect</h2><p><span>Call</span><a href="${c.phoneHref}">${esc(c.phone)}</a></p><p><span>Mail</span><a href="mailto:${c.email}">${esc(c.email)}</a></p></aside>
 </section>`,
   }));
-  // Legal pages
-  for (const [slug, l] of Object.entries(c.legal)) {
+  // Legal pages (from legal.json). Paragraphs are separated by blank lines; lines starting "- " are list items.
+  const prose = (t) => t.split(/\n\n/).map((para) => {
+    const lines = para.split("\n");
+    const items = lines.filter((l) => l.startsWith("- "));
+    const lead = lines.filter((l) => !l.startsWith("- "));
+    return (lead.length ? `<p>${lead.map(esc).join("<br>")}</p>` : "") + (items.length ? `<ul>${items.map((l) => `<li>${esc(l.slice(2))}</li>`).join("")}</ul>` : "");
+  }).join("");
+  const legalLinks = legal.order.map((slug) => `<li><a href="/${slug}/">${esc(legal.docs[slug].title)}</a> — ${esc(legal.docs[slug].summary)}</li>`).join("");
+  for (const slug of legal.order) {
+    const l = legal.docs[slug];
     write(slug, page({
-      path: `/${slug}/`, title: l.title, description: `${c.company} ${l.title}.`,
-      body: `<article class="wrap legaltext"><h1>${esc(l.title)}</h1><p class="muted">${esc(l.updated)}</p><p>${esc(l.intro)}</p>
-${l.sections.map(([h, t]) => `<h2>${esc(h)}</h2><p>${esc(t)}</p>`).join("\n")}
-<p><strong>${esc(c.company)}</strong><br>Phone: <a href="${c.phoneHref}">${esc(c.phone)}</a><br>Email: <a href="mailto:${c.email}">${esc(c.email)}</a></p></article>`,
+      path: `/${slug}/`, title: l.title, description: `${legal.entity} ${l.title}. ${l.summary}`,
+      body: `<article class="wrap legaltext"><h1>${esc(l.title)}</h1><p class="muted">${esc(legal.updated)} · Version ${esc(legal.version)}</p>${prose(l.intro)}
+${l.sections.map(([h, t]) => `<h2>${esc(h)}</h2>${prose(t)}`).join("\n")}
+<h2>Contact</h2><p><strong>${esc(legal.entity)}</strong><br>Phone: <a href="${c.phoneHref}">${esc(c.phone)}</a><br>Email: <a href="mailto:${c.email}">${esc(c.email)}</a></p>
+<p class="muted small">Other documents: <a href="/legal/">all legal documents</a>.</p></article>`,
     }));
   }
+  write("legal", page({
+    path: "/legal/", title: "Legal", description: `${legal.entity} terms, policies and disclaimers.`,
+    body: `<article class="wrap legaltext"><h1>Legal</h1><p class="muted">${esc(legal.updated)} · Version ${esc(legal.version)}</p><p>The terms, policies and disclaimers that apply to our website, the Akea AI Suite and our apps.</p><ul class="legal-index">${legalLinks}</ul></article>`,
+  }));
   // 404
   writeFileSync(join(out, "404.html"), page({ path: "/404", title: "Page not found", description: "Page not found",
     body: `<section class="wrap legaltext"><h1>Page not found</h1><p>The page you're looking for isn't here. <a href="/">Go to the home page</a> or <a href="${appPath}">log in</a>.</p></section>` }));
@@ -176,6 +190,6 @@ ${l.sections.map(([h, t]) => `<h2>${esc(h)}</h2><p>${esc(t)}</p>`).join("\n")}
   cpSync(join(here, "fonts"), join(out, "fonts"), { recursive: true });
   copyFileSync(join(here, "site.js"), join(out, "site.js"));
   writeFileSync(join(out, "robots.txt"), `User-agent: *\nDisallow: ${appPath}\nSitemap: ${siteUrl}/sitemap.xml\n`);
-  const pages = ["/", "/about-us/", "/portfolio/", "/careers/", "/contact-us/", "/privacy-policy/", "/terms/", "/cookie-policy/"];
+  const pages = ["/", "/about-us/", "/portfolio/", "/careers/", "/contact-us/", "/legal/", ...legal.order.map((x) => `/${x}/`)];
   writeFileSync(join(out, "sitemap.xml"), `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${pages.map((p) => `  <url><loc>${siteUrl}${p}</loc></url>`).join("\n")}\n</urlset>\n`);
 }

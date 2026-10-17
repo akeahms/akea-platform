@@ -4,10 +4,11 @@ import * as SplashScreen from "expo-splash-screen";
 import { StatusBar } from "expo-status-bar";
 import { restoreSession, onAuth, currentSession, mfa } from "@/lib/sb";
 import { AppProvider, loadMembership } from "@/lib/app";
+import { legalStatus, needsAcceptance, onLegalChange } from "@/lib/legal";
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
 
-type Status = "loading" | "signed-out" | "two-step" | "no-access" | "ready";
+type Status = "loading" | "signed-out" | "two-step" | "terms" | "no-access" | "ready";
 
 export default function RootLayout() {
   const [status, setStatus] = useState<Status>("loading");
@@ -23,6 +24,7 @@ export default function RootLayout() {
         const verified = (await mfa.factors().catch(() => [])).some((f) => f.status === "verified");
         if (m.roles?.requires_mfa || verified) { setStatus("two-step"); return; }
       }
+      if (needsAcceptance(await legalStatus(m.tenant_id))) { setStatus("terms"); return; }
       setStatus("ready");
     } catch {
       setStatus(currentSession() ? "no-access" : "signed-out");
@@ -31,7 +33,9 @@ export default function RootLayout() {
 
   useEffect(() => {
     restoreSession().then(evaluate);
-    return onAuth(() => { evaluate(); });
+    const offAuth = onAuth(() => { evaluate(); });
+    const offLegal = onLegalChange(() => { evaluate(); });
+    return () => { offAuth(); offLegal(); };
   }, []);
   useEffect(() => { if (status !== "loading") SplashScreen.hideAsync().catch(() => {}); }, [status]);
   if (status === "loading") return null;
@@ -43,6 +47,9 @@ export default function RootLayout() {
       </Stack.Protected>
       <Stack.Protected guard={status === "two-step"}>
         <Stack.Screen name="two-step" />
+      </Stack.Protected>
+      <Stack.Protected guard={status === "terms"}>
+        <Stack.Screen name="terms" />
       </Stack.Protected>
       <Stack.Protected guard={status === "no-access"}>
         <Stack.Screen name="no-access" />

@@ -5,6 +5,7 @@ import { auth, currentSession } from "@/lib/sb";
 import { useApp } from "@/lib/app";
 import { Screen, Card, Row, Button } from "@/components/ui";
 import { PORTAL_URL, PRODUCT_NAME } from "@/constants";
+import { legalUrl } from "@/lib/legal";
 import { colors } from "@/theme";
 
 export default function Account() {
@@ -21,6 +22,12 @@ export default function Account() {
       <Card title={`${PRODUCT_NAME} on the web`}>
         <Text style={styles.muted}>Reports, finance, compliance, capital and setup live in {PRODUCT_NAME} on the web.</Text>
         <Button kind="secondary" title={`Open ${PRODUCT_NAME} on the web`} onPress={() => Linking.openURL(PORTAL_URL)} />
+      </Card>
+      <Card title="Legal">
+        <Row title="Terms of Service" onPress={() => Linking.openURL(legalUrl("terms"))} />
+        <Row title="Privacy Policy" onPress={() => Linking.openURL(legalUrl("privacy-policy"))} />
+        <Row title="Disclaimers" onPress={() => Linking.openURL(legalUrl("disclaimers"))} />
+        <Row title="Accessibility" onPress={() => Linking.openURL(legalUrl("accessibility"))} />
       </Card>
       <Button kind="danger" title="Sign out" onPress={() => Alert.alert("Sign out?", undefined, [{ text: "Cancel", style: "cancel" }, { text: "Sign out", style: "destructive", onPress: () => auth.signOut() }])} />
       <Text style={styles.ver}>Version {Constants.expoConfig?.version || "1.0.0"}</Text>

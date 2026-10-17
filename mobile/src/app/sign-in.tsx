@@ -1,5 +1,6 @@
 import React, { useState } from "react";
-import { Image, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, View, Pressable } from "react-native";
+import { Image, KeyboardAvoidingView, Linking, Platform, ScrollView, StyleSheet, Text, TextInput, View, Pressable } from "react-native";
+import { legalUrl } from "@/lib/legal";
 import { auth } from "@/lib/sb";
 import { Button, ErrorText } from "@/components/ui";
 import { brand, colors, serif, space } from "@/theme";
@@ -40,6 +41,9 @@ export default function SignIn() {
           <Pressable onPress={reset} hitSlop={8}><Text style={styles.link}>Forgot password?</Text></Pressable>
         </View>
         <Text style={styles.fine}>New team members: your manager invites you by email first.</Text>
+        <Text style={styles.legal}>By signing in you agree to the{" "}
+          <Text style={styles.legalLink} onPress={() => Linking.openURL(legalUrl("terms"))} accessibilityRole="link">Terms of Service</Text>, including individual arbitration and a class-action waiver, and the{" "}
+          <Text style={styles.legalLink} onPress={() => Linking.openURL(legalUrl("privacy-policy"))} accessibilityRole="link">Privacy Policy</Text>.</Text>
       </ScrollView>
     </KeyboardAvoidingView>
   );
@@ -54,5 +58,7 @@ const styles = StyleSheet.create({
   link: { color: brand.accentText, fontWeight: "600", fontSize: 15, textAlign: "center", marginTop: space.sm },
   note: { color: brand.info, fontSize: 14 },
   fine: { color: brand.ink3, fontSize: 13, textAlign: "center", marginTop: space.xl },
+  legal: { color: brand.ink3, fontSize: 12, textAlign: "center", lineHeight: 17 },
+  legalLink: { color: brand.accentText, fontWeight: "600" },
 });
 void colors;
